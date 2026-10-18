@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Godot;
 using LiteDB;
+using SphereHelpers.Extensions;
 using SphServer.Packets;
 using SphServer.Shared.GameData.Enums;
 using SphServer.Shared.Logger;
@@ -9,7 +10,6 @@ using SphServer.Shared.WorldState;
 using SphServer.Sphere.Game.Loot;
 using SphServer.Sphere.Game.WorldObject;
 using SphServer.System;
-using static SphServer.Shared.Networking.DataModel.Serializers.SphereDbEntrySerializerBase;
 
 namespace SphServer.Shared.Db.DataModels;
 
@@ -221,7 +221,7 @@ public class ItemContainerDbEntry
     {
         var items = GetItems ();
         var packets = new List<byte[]> ();
-        var itemList = BuildItemListPacket (items.Select (x => x.Id).ToList ());
+        var itemList = BuildItemListPacket (items);
         if (itemList is not null)
         {
             packets.Add (itemList);
@@ -241,79 +241,56 @@ public class ItemContainerDbEntry
             .ToList ();
 
     /// <summary>
-    /// Captured live replies to an open, one per item count; the bytes between ids are weights
-    /// and are left as captured
+    /// Constant lead after the record header in every live list frame
     /// </summary>
-    private byte[]? BuildItemListPacket (IReadOnlyList<int> itemIds)
+    private const uint ListLead = 0x13;
+
+    private const byte FollowOnMarker = 5;
+    private const byte LockMessage = 3;
+    private const byte SlotMessage = 2;
+
+    /// <summary>
+    /// Live list frames (mobSpawnAndDrops): unlock (type 3, one byte 0), then per slot type 2 with
+    /// slot, 24-bit item id and 32-bit weight, framed like the item records. ct_mbag starts
+    /// locked, and without the unlock its items cannot be taken out
+    /// </summary>
+    private byte[]? BuildItemListPacket (IReadOnlyList<ItemDbEntry> items)
     {
-        int ItemId (int index) => index < itemIds.Count ? itemIds[index] : 0;
-
-        var item_0_id = ItemId (0);
-        var item_1_id = ItemId (1);
-        var item_2_id = ItemId (2);
-        var item_3_id = ItemId (3);
-
-        var item0_1 = (byte) ((item_0_id & 0b1111) << 4);
-        var item0_2 = (byte) ((item_0_id >> 4) & 0b11111111);
-        var item0_3 = (byte) ((item_0_id >> 12) & 0b1111);
-
-        var item1_1 = (byte) ((item_1_id & 0b1) << 7);
-        var item1_2 = (byte) ((item_1_id >> 1) & 0b11111111);
-        var item1_3 = (byte) ((item_1_id >> 9) & 0b1111111);
-
-        var item2_1 = (byte) ((item_2_id & 0b111111) << 2);
-        var item2_2 = (byte) ((item_2_id >> 6) & 0b11111111);
-        var item2_3 = (byte) ((item_2_id >> 14) & 0b11);
-
-        var item3_1 = (byte) ((item_3_id & 0b111) << 5);
-        var item3_2 = (byte) ((item_3_id >> 3) & 0b11111111);
-        var item3_3 = (byte) ((item_3_id >> 11) & 0b11111);
-
-        var localId = (ushort) Id;
-
-        switch (itemIds.Count)
+        if (items.Count == 0)
         {
-            case 1:
-                return
-                [
-                    0x19, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, MinorByte (localId), MajorByte (localId), 0x5C,
-                    0x46, 0x61, 0x02, 0x00, 0x0A, 0x82, 0x00, item0_1, item0_2, item0_3, 0x70, 0x0D, 0x00,
-                    0x00, 0x00
-                ];
-            case 2:
-                return
-                [
-                    0x23, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, MinorByte (localId), MajorByte (localId), 0x5C,
-                    0x46, 0x61, 0x02, 0x00, 0x0A, 0x82, 0x00, item0_1, item0_2, item0_3, 0xC0,
-                    0x00, 0x00,
-                    0x00, 0x50, 0x10, 0x84, item1_1, item1_2, item1_3, 0x00, 0x4B, 0x00, 0x00,
-                    0x00
-                ];
-            case 3:
-                return
-                [
-                    0x2E, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, MinorByte (localId), MajorByte (localId), 0x5C,
-                    0x46, 0x61, 0x02, 0x00, 0x0A, 0x82, 0x00, item0_1, item0_2, item0_3, 0x30, 0x00, 0x00,
-                    0x00, 0x50,
-                    0x10, 0x84, item1_1, item1_2, item1_3, 0x00, 0x08, 0x00, 0x00, 0x80, 0x82, 0x20, 0x08,
-                    item2_1,
-                    item2_2, item2_3, 0x2C, 0x00, 0x00, 0x00, 0x00
-                ];
-            case 4:
-                return
-                [
-                    0x38, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, MinorByte (localId), MajorByte (localId), 0x5C,
-                    0x46, 0x61, 0x02, 0x00, 0x0A, 0x82, 0x00, item0_1, item0_2, item0_3, 0x30, 0x00, 0x00,
-                    0x00, 0x50,
-                    0x10, 0x84, item1_1, item1_2, item1_3, 0x00, 0x08, 0x00, 0x00, 0x80, 0x82, 0x20, 0x08,
-                    item2_1,
-                    item2_2, item2_3, 0x2C, 0x00, 0x00, 0x00, 0x14, 0x04, 0x61, item3_1, item3_2, item3_3,
-                    0x80, 0x19,
-                    0x00, 0x00, 0x00
-                ];
-            default:
-                SphLogger.Warning ($"Loot bag {Id:X4}: no item list frame for {itemIds.Count} item(s)");
-                return null;
+            return null;
         }
+
+        var stream = SphServer.Shared.BitStream.SphBitStream.GetWriteBitStream ();
+        stream.WriteUInt16 ((ushort) Id, 16);
+        stream.WriteByte (0, 2);
+        stream.WriteUInt16 ((ushort) ObjectType.Sack_Mob_Loot, 10);
+        stream.WriteByte (0, 1);
+        stream.WriteByte (0x0A, 8);
+        stream.WriteUInt16 ((ushort) ListLead, 16);
+        stream.WriteByte ((byte) (ListLead >> 16), 4);
+
+        WriteMessageHeader (stream, LockMessage, 1);
+        stream.WriteByte (0, 8);
+
+        for (var slot = 0; slot < items.Count && slot < MaxItems; slot++)
+        {
+            WriteMessageHeader (stream, SlotMessage, 8);
+            stream.WriteByte ((byte) slot, 8);
+            stream.WriteUInt16 ((ushort) items[slot].Id, 16);
+            stream.WriteByte ((byte) (items[slot].Id >> 16), 8);
+            var weight = (uint) global::System.Math.Max (1, items[slot].Weight);
+            stream.WriteUInt16 ((ushort) weight, 16);
+            stream.WriteUInt16 ((ushort) (weight >> 16), 16);
+        }
+
+        return Packet.ToByteArray (stream.GetStreamData (), 3);
+    }
+
+    private static void WriteMessageHeader (SphServer.Shared.BitStream.SphWriteStream stream, byte type, byte length)
+    {
+        stream.WriteByte (FollowOnMarker, 7);
+        stream.WriteByte (type, 4);
+        stream.WriteByte (length, 8);
     }
 }
