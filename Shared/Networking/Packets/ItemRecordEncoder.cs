@@ -53,8 +53,28 @@ public static class ItemRecordEncoder
     public static byte[] Encode (ItemDbEntry item, ushort containerObjectId,
         float x = ContainedX, float y = 0f, float z = 0f)
     {
-        return Encode ((ushort) item.Id, (int) item.WireObjectType, item.GameId, SuffixWireFor (item),
+        var record = Encode ((ushort) item.Id, (int) item.WireObjectType, item.GameId, SuffixWireFor (item),
             containerObjectId, x, y, z, item.CurrentDurability, item.Durability, item.GameObjectType);
+        return IsGuildFamily ((ObjectType) item.WireObjectType) ? record : Concat (record, EncodeCount (item));
+    }
+
+    /// <summary>
+    /// ContMan cmd 12 with two bytes sets the item's amount, which is 0 until then. The client's cell
+    /// check divides the weight by it, so with no amount every drop into a cell dies on a division
+    /// by zero in the script and is never sent
+    /// </summary>
+    public static byte[] EncodeCount (ItemDbEntry item)
+    {
+        var stream = GetWriteBitStream ();
+        stream.WriteUInt16 ((ushort) item.Id, 16);
+        stream.WriteByte (0, 2);
+        stream.WriteUInt16 ((ushort) ((int) item.WireObjectType & 0xFFF), 12);
+        stream.WriteByte (ContManRegionWire, 7);
+        stream.WriteByte ((byte) CountMessage, 4);
+        stream.WriteByte (2, 8);
+        stream.WriteUInt16 ((ushort) Math.Max (1, item.ItemCount), 16);
+        stream.WriteByte (0, 7);
+        return Packet.ToByteArray (stream.GetStreamData (), 3);
     }
 
     /// <summary>
@@ -163,6 +183,13 @@ public static class ItemRecordEncoder
         stream.WriteByte (ContManRegionWire, 7);
         stream.WriteByte (1, 4);
         stream.WriteByte (0, 8);
+
+        // The amount stays 0 until a count message sets it, and the client's cell check divides the
+        // weight by it: without this the item can never be dragged back into a cell
+        stream.WriteByte (ContManRegionWire, 7);
+        stream.WriteByte ((byte) CountMessage, 4);
+        stream.WriteByte (2, 8);
+        stream.WriteUInt16 ((ushort) Math.Max (1, item.ItemCount), 16);
         stream.WriteByte (0, 7);
         return Packet.ToByteArray (stream.GetStreamData (), 3);
     }
