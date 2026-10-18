@@ -1,6 +1,7 @@
 ﻿using SphereHelpers.Extensions;
 using SphServer.Helpers;
 using SphServer.Packets;
+using SphServer.Server.GameplayLogic.Cult;
 using SphServer.Shared.BitStream;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Networking;
@@ -416,10 +417,11 @@ public class CharacterDbEntrySerializer (CharacterDbEntry characterDbEntry) : Sp
 
         var clanRank = string.IsNullOrEmpty (clanName) ? 0 : (int) characterDbEntry.ClanRank;
         var gender = GenderOverride ?? (characterDbEntry.IsGenderFemale ? 1 : 0);
-        var modelPacked = (uint) (characterDbEntry.FaceType
-                                 | (characterDbEntry.HairStyle << 8)
-                                 | (characterDbEntry.HairColor << 16)
-                                 | (characterDbEntry.Tattoo << 24));
+        var modelPacked = CultRules.SpawnModelOverride (characterDbEntry)
+                          ?? (uint) (characterDbEntry.FaceType
+                                     | (characterDbEntry.HairStyle << 8)
+                                     | (characterDbEntry.HairColor << 16)
+                                     | (characterDbEntry.Tattoo << 24));
         var guild = (int) characterDbEntry.Guild;
         var guildWire = guild == 0 ? 0 : guild + 64;
         var guildRank = guild == 0 ? 0 : characterDbEntry.GuildLevelMinusOne & 0xF;
