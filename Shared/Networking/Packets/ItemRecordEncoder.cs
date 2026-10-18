@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using SphereHelpers.Extensions;
 using SphServer.Shared.BitStream;
 using SphServer.Shared.Db.DataModels;
