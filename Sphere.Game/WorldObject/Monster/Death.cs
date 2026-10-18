@@ -57,7 +57,7 @@ public partial class Monster
 
         if (character is not null)
         {
-            MaybeDropLoot ();
+            MaybeDropLoot (character);
         }
 
         MonsterKilled?.Invoke (this, hit, outcome);
@@ -68,18 +68,22 @@ public partial class Monster
     private const int MaxLootItems = 2;
 
     /// <summary>
-    /// The sack sits where the corpse falls, with loot of the mob's own level
+    /// The sack sits where the corpse falls, with loot of the mob's own level. Chance, count and
+    /// rarity are locals so rules about the killer can adjust them before the roll
     /// </summary>
-    private void MaybeDropLoot ()
+    private void MaybeDropLoot (CharacterDbEntry killer)
     {
-        if (SphRng.Rng.NextDouble () >= LootDropChance)
+        var chance = LootDropChance;
+        var count = SphRng.Rng.Next (1, MaxLootItems + 1);
+        var ratity = LootRatity.DEFAULT_MOB;
+
+        if (count <= 0 || SphRng.Rng.NextDouble () >= chance)
         {
             return;
         }
 
         var titleMinusOne = Math.Max (0, GetMonsterLevel () - 1);
-        ItemContainerDbEntry.SpawnRandomLoot (GlobalPosition, titleMinusOne, LootRatity.DEFAULT_MOB,
-            SphRng.Rng.Next (1, MaxLootItems + 1));
+        ItemContainerDbEntry.SpawnRandomLoot (GlobalPosition, titleMinusOne, ratity, count);
     }
 
     /// <summary>
