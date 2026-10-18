@@ -54,7 +54,7 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
         }
 
         client.SaveCharacter ();
-        var bag = ItemContainerDbEntry.SpawnWithItems (character.Origin, [item]);
+        var bag = ItemContainerDbEntry.SpawnWithItems (character.Origin, [item], droppedByCharacterId: character.Id);
 
         var name = item.Localization.GetValueOrDefault (Locale.Russian, item.GameObjectType.ToString ());
         SphLogger.Info ($"Dropped {name} [{itemId:X4}] from {string.Join (",", slots)} into loot bag {bag.Id:X4}. Client ID: {localId:X4}");

@@ -34,6 +34,11 @@ public class ItemContainerDbEntry
     public Dictionary<int, int> Contents { get; set; } = [];
 
     /// <summary>
+    /// Set for a player's drop: what nobody picked up goes back to them instead of being deleted
+    /// </summary>
+    public int? DroppedByCharacterId { get; set; }
+
+    /// <summary>
     /// Random loot for a title level, 1-4 items unless a count is given
     /// </summary>
     public static ItemContainerDbEntry SpawnRandomLoot (Vector3 godotPosition, int titleMinusOne,
@@ -56,11 +61,12 @@ public class ItemContainerDbEntry
     /// Items must already be in the item collection
     /// </summary>
     public static ItemContainerDbEntry SpawnWithItems (Vector3 godotPosition, IReadOnlyList<ItemDbEntry> items,
-        int titleMinusOne = 0)
+        int titleMinusOne = 0, int? droppedByCharacterId = null)
     {
         var container = new ItemContainerDbEntry
         {
             Id = WorldObjectIndex.New (),
+            DroppedByCharacterId = droppedByCharacterId,
             TitleMinusOne = titleMinusOne,
             X = godotPosition.X,
             Y = -godotPosition.Y,
@@ -100,7 +106,11 @@ public class ItemContainerDbEntry
 
     public static void Delete (ItemContainerDbEntry container, bool deleteItems)
     {
-        if (deleteItems)
+        if (deleteItems && container.DroppedByCharacterId is { } ownerId)
+        {
+            ReturnToOwner (container, ownerId);
+        }
+        else if (deleteItems)
         {
             var carried = DbConnection.Characters.FindAll ()
                 .SelectMany (x => x.Items.Values)
@@ -113,6 +123,52 @@ public class ItemContainerDbEntry
         }
 
         DbConnection.ItemContainers.Delete (container.Id);
+    }
+
+    /// <summary>
+    /// An online owner gets the item declared again; offline, it goes into the stored character.
+    /// With no free cell it stays an unparented row rather than being deleted
+    /// </summary>
+    private static void ReturnToOwner (ItemContainerDbEntry container, int ownerId)
+    {
+        var client = ActiveClients.GetAll ().Values
+            .FirstOrDefault (x => x.CurrentCharacter?.Id == ownerId);
+        var stored = client is null ? DbConnection.Characters.FindById (ownerId) : null;
+
+        foreach (var itemId in container.Contents.Values)
+        {
+            var item = DbConnection.Items.FindById (itemId);
+            if (item is null)
+            {
+                continue;
+            }
+
+            item.ParentContainerId = null;
+            DbConnection.Items.Update (item);
+
+            BelongingSlot? slot;
+            if (client is not null)
+            {
+                slot = client.PutItemInInventoryAndDeclare (item);
+            }
+            else
+            {
+                slot = stored?.FindEmptyInventorySlot ();
+                if (slot is not null)
+                {
+                    stored!.Items[slot.Value] = item.Id;
+                }
+            }
+
+            SphLogger.Info (slot is null
+                ? $"Loot bag {container.Id:X4}: owner {ownerId} has no free cell for {item.Id:X4}, kept unparented"
+                : $"Loot bag {container.Id:X4}: returned {item.Id:X4} to owner {ownerId} in {slot}");
+        }
+
+        if (stored is not null)
+        {
+            DbConnection.Characters.Update (stored);
+        }
     }
 
     public bool RemoveItemByIdAndDestroyContainerIfEmpty (int itemGlobalId)

@@ -33,12 +33,14 @@ public partial class LootBag : WorldObject
             Angle = CreateRandomSpawnAngle ()
         };
         bag.Position = godotPosition;
-
-        // _Ready reserves ID itself and reassigns it when already taken
-        WorldObjectIndex.Release (bag.ID);
         SphServer.Server.SphereServer.ServerNode.CallDeferred (Node.MethodName.AddChild, bag);
         return bag;
     }
+
+    /// <summary>
+    /// The id is the container's, already reserved and already in the item records
+    /// </summary>
+    protected override bool HoldsReservedId => true;
 
     public static LootBag? Find (int containerId) => ActiveWorldObjects.Get ((ushort) containerId) as LootBag;
 
