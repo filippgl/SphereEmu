@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Godot;
 using SphServer.Godot.Scripts.Navigation;
+using SphServer.Godot.Scripts.World;
 using SphServer.Godot.Scripts.Terrain;
 using SphServer.Godot.Scripts.Objects.HelperGizmos;
 using SphServer.Sphere.Game;
@@ -23,19 +24,43 @@ public partial class ConsoleCommandParser
             CultureInfo.InvariantCulture, out var r) ? r : 200f;
         var samples = tokens.Length > 1 && int.TryParse (tokens[1], out var s) ? s : 40;
         var diag = tokens.Length > 2 && tokens[2] == "diag";
+        var bench = tokens.Length > 2 && tokens[2] == "bench";
 
+        // "at x y z" in /pos terms checks a place the client cannot reach, such as a dungeon
         Vector3 center;
-        if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out center))
+        var at = Array.IndexOf (tokens, "at");
+        if (at >= 0 && tokens.Length >= at + 4
+                    && float.TryParse (tokens[at + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out var ax)
+                    && float.TryParse (tokens[at + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out var ay)
+                    && float.TryParse (tokens[at + 3], NumberStyles.Float, CultureInfo.InvariantCulture, out var az))
         {
-            SendFeedback ("/navcheck needs a connected client with a position.");
+            center = new Vector3 (ax, -ay, -az);
+        }
+        else if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out center))
+        {
+            SendFeedback ("/navcheck needs a connected client with a position, or at x y z.");
             return;
         }
 
-        Callable.From (() => RunNavCheck (center, radius, samples, diag)).CallDeferred ();
+        var loadChunks = at >= 0;
+        Callable.From (() => RunNavCheck (center, radius, samples, diag, bench, loadChunks)).CallDeferred ();
     }
 
-    private async void RunNavCheck (Vector3 center, float radius, int samples, bool diag)
+    private async void RunNavCheck (Vector3 center, float radius, int samples, bool diag, bool bench = false,
+        bool loadChunks = false)
     {
+        var tree = SphereServer.ServerNode.GetTree ();
+
+        // Spawners exist only in world chunks loaded around players, so a remote check loads them
+        if (loadChunks && FindNode<WorldChunkStreamer> (tree.Root) is { } streamer)
+        {
+            streamer.EnsureAroundWorldPosition (center);
+            for (var i = 0; i < 5; i++)
+            {
+                await SphereServer.ServerNode.ToSignal (tree, SceneTree.SignalName.PhysicsFrame);
+            }
+        }
+
         var spawners = new List<MonsterSpawner> ();
         CollectSpawners (SphereServer.ServerNode, spawners);
         spawners.RemoveAll (x => Horizontal (x.LeashCenterWorld, center) > radius);
@@ -46,7 +71,6 @@ public partial class ConsoleCommandParser
             TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, spawner.LeashCenterWorld, spawner.LeashRadiusMeters + 8f);
         }
 
-        var tree = SphereServer.ServerNode.GetTree ();
         await TerrainNavMeshRuntime.SyncAsync (tree);
         for (var i = 0; i < 3; i++)
         {
@@ -56,6 +80,12 @@ public partial class ConsoleCommandParser
         if (diag)
         {
             DiagnoseNearestSpawner (center, spawners);
+        }
+
+        if (bench)
+        {
+            BenchFindPathSteps (spawners);
+            return;
         }
 
         var deadline = Time.GetTicksMsec () + 120_000UL;
@@ -187,7 +217,7 @@ public partial class ConsoleCommandParser
 
     private static float Horizontal (Vector3 a, Vector3 b) => new Vector2 (a.X - b.X, a.Z - b.Z).Length ();
 
-    // Mirrors NavPathQuery's guards (leash +2m, rise above max(1.5m, run), length over 3x+15m) to
+    // Mirrors NavPathQuery's guards (leash +2m, rise above max(1.5m, 3x run), length over 3x+15m) to
     // name which one fired; the constants are copied, so keep them in step
     private static string ExplainRejection (Vector3[] path, Vector3 start, Vector3 goal, Vector3 leashCenter,
         float leash)
@@ -211,7 +241,7 @@ public partial class ConsoleCommandParser
 
             var run = Horizontal (point, previous);
             var rise = Mathf.Abs (point.Y - previous.Y);
-            if (rise > Mathf.Max (1.5f, run))
+            if (rise > Mathf.Max (1.5f, run * 3f))
             {
                 reasons.Add ($"rise {rise:F1}m over {run:F1}m at {point}");
                 break;
@@ -242,6 +272,24 @@ public partial class ConsoleCommandParser
         }
 
         return $"{path.Length} pts, Y {minY:F1}..{maxY:F1}, farthest {farthest:F0}m from centre, length {length:F0}m";
+    }
+
+    private static T? FindNode<T> (Node node) where T : Node
+    {
+        if (node is T match)
+        {
+            return match;
+        }
+
+        foreach (var child in node.GetChildren ())
+        {
+            if (FindNode<T> (child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private static void CollectSpawners (Node node, List<MonsterSpawner> spawners)
@@ -326,6 +374,7 @@ public partial class ConsoleCommandParser
         int samples = 0, offMesh = 0, jumps = 0, depthFlips = 0;
         var worst = string.Empty;
         var worstDeviation = 0f;
+        var travelled = new Dictionary<ulong, float> ();
         var end = Time.GetTicksMsec () + (ulong) (seconds * 1000f);
         while (Time.GetTicksMsec () < end)
         {
@@ -333,6 +382,13 @@ public partial class ConsoleCommandParser
             if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out var player))
             {
                 break;
+            }
+
+            // The off-mesh check must see the tiles the mobs walk on, not only what FindPath loaded
+            if (TerrainNavMeshRuntime.EnsureTilesLoaded (sphereClient, player, MobWatchRadiusMeters))
+            {
+                await TerrainNavMeshRuntime.SyncAsync (tree);
+                continue;
             }
 
             var monsters = new List<Monster> ();
@@ -348,10 +404,11 @@ public partial class ConsoleCommandParser
                 }
 
                 var moving = monster.NavMode != MonsterNavMode.Idle;
-                if (last.TryGetValue (id, out var prev) && moving)
+                if (last.TryGetValue (id, out var prev) && moving && prev.DistanceTo (pos) > 0.3f)
                 {
                     watched.Add (id);
                     samples++;
+                    travelled[id] = travelled.GetValueOrDefault (id) + Horizontal (prev, pos);
                     if (prev.DistanceTo (pos) > MobWatchJumpMeters)
                     {
                         jumps++;
@@ -381,7 +438,8 @@ public partial class ConsoleCommandParser
             }
         }
 
-        SendFeedback ($"/mobwatch: {watched.Count} moving mob(s), {samples} sample(s); off navmesh {offMesh}, " +
+        var walked = string.Join (", ", travelled.Values.OrderByDescending (x => x).Take (5).Select (x => $"{x:F0}m"));
+        SendFeedback ($"/mobwatch: {watched.Count} moving mob(s) walked {walked}; {samples} moving sample(s); off navmesh {offMesh}, " +
                       $"jumps>{MobWatchJumpMeters:F0}m {jumps}, surface/dungeon flips {depthFlips}" +
                       (worst.Length > 0 ? $"; worst {worstDeviation:F1}m: {worst}" : string.Empty));
     }
@@ -397,5 +455,60 @@ public partial class ConsoleCommandParser
         {
             CollectMonsters (child, monsters);
         }
+    }
+
+    private const int NavBenchRuns = 20;
+
+    // Times each step of the guarded FindPath on one real pair, to see where a mob's repath goes
+    private void BenchFindPathSteps (List<MonsterSpawner> spawners)
+    {
+        var rng = new RandomNumberGenerator ();
+        foreach (var spawner in spawners)
+        {
+            var c = spawner.LeashCenterWorld;
+            var leash = spawner.LeashRadiusMeters;
+            if (!TrySampleNavPoint (rng, c, leash, out var start) || !TrySampleNavPoint (rng, c, leash, out var goal))
+            {
+                continue;
+            }
+
+            var watch = new global::System.Diagnostics.Stopwatch ();
+            double Time (Action step)
+            {
+                watch.Restart ();
+                for (var i = 0; i < NavBenchRuns; i++)
+                {
+                    step ();
+                }
+
+                return watch.Elapsed.TotalMilliseconds / NavBenchRuns;
+            }
+
+            TerrainNavMeshRuntime.IsPointOnNavMesh (start, out var a);
+            TerrainNavMeshRuntime.IsPointOnNavMesh (goal, out var b);
+            var request = new NavPathRequest (start, goal, c, leash);
+            var files = Time (() => TerrainNavMeshRuntime.HasAnyTileFiles ());
+            var navDir = global::System.IO.Path.GetFullPath (TerrainBakePaths.GeneratedNavMeshesDir);
+            var oldFiles = Time (() => _ = global::System.IO.Directory.Exists (navDir)
+                                           && global::System.IO.Directory.GetFiles (navDir, "*.res").Length > 0);
+            var oneClosest = Time (() => TerrainNavMeshRuntime.TryClosestPoint (start, out _));
+            var ensure = Time (() => TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, c, leash + 8f));
+            var sync = Time (() => TerrainNavMeshRuntime.TrySyncImmediate ());
+            var snaps = Time (() =>
+            {
+                TerrainNavMeshRuntime.IsPointOnNavMesh (start, out _);
+                TerrainNavMeshRuntime.IsPointOnNavMesh (goal, out _);
+            });
+            var raw = Time (() => TerrainNavMeshRuntime.FindPath (a, b));
+            var full = Time (() => NavPathQuery.FindPath (spawner, request));
+            SendFeedback (string.Create (CultureInfo.InvariantCulture,
+                $"/navcheck bench ({NavBenchRuns} runs, ms each): files {files:F2} (old scan {oldFiles:F2}), " +
+                $"1 closestPoint {oneClosest:F2}, ensureTiles {ensure:F2}, " +
+                $"sync {sync:F2}, 2 snaps {snaps:F2}, navFindPath {raw:F2}, guarded FindPath {full:F2}; " +
+                $"{spawner.Name} {Horizontal (start, goal):F0}m apart"));
+            return;
+        }
+
+        SendFeedback ("/navcheck bench: no spawner gave a sample pair");
     }
 }

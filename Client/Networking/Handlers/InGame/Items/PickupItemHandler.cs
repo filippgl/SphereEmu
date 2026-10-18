@@ -161,6 +161,13 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
             return;
         }
 
+        if (NewPlayerDungeon.TokenIdFor (client) == globalItemId)
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
+            NewPlayerDungeon.TakeToken (client);
+            return;
+        }
+
         var item = DbConnection.Items.Find (x => x.Id == globalItemId).FirstOrDefault ();
 
         if (item is null)

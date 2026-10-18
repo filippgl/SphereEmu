@@ -40,6 +40,13 @@ public class DragItemOnGroundHandler (ushort localId, ClientConnection clientCon
             return;
         }
 
+        // The exit token is not a DB item either; the drop into a cell comes this way
+        if (ActiveClients.Get (localId) is { } tokenClient && NewPlayerDungeon.TokenIdFor (tokenClient) == itemId)
+        {
+            NewPlayerDungeon.TakeToken (tokenClient);
+            return;
+        }
+
         var item = DbConnection.Items.FindById ((int) itemId);
         if (item is null)
         {

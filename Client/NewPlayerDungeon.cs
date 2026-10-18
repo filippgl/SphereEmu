@@ -134,6 +134,10 @@ public static class NewPlayerDungeon
 
     private const double ExitCooldownSeconds = 10;
 
+    private const double TokenHolderPortalGraceSeconds = 10;
+
+    private static readonly Dictionary<ushort, DateTime> onPortalSince = [];
+
     /// <summary>
     /// When the client's own position update last put it inside the maze; once it has, the
     /// teleport has landed and the retries stop, so a later /tp or exit is left alone
@@ -192,6 +196,14 @@ public static class NewPlayerDungeon
     {
         try
         {
+            // Client indexes are reused, and the token is not a DB item, so it does not survive a
+            // relog: every new session starts without it and sees it on the stone again
+            if (client.CurrentCharacter is { } entering)
+            {
+                tokenTakenBy.Remove (entering.ClientIndex);
+                tokenShownTo.Remove (entering.ClientIndex);
+            }
+
             // A teleport that lands during the loading screen is dropped, and how long that screen
             // lasts varies (seconds on a warm client, half a minute in a VM; the world-loaded frame
             // does not always come). So the teleport is sent early, re-sent once the client reports
@@ -338,11 +350,12 @@ public static class NewPlayerDungeon
         }
 
         client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (ReplayTokenEntityId));
-        client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
-            client.GetLocalObjectId (tokenEntityId), ObjectType.Token_Tutorial_Torweal,
-            TokenWorld.X, TokenWorld.Y, TokenWorld.Z, 15, TokenSetup));
-        if (client.CurrentCharacter is { } viewer)
+        // A token already in this client's bag would jump back onto the stone if spawned again
+        if (client.CurrentCharacter is { } viewer && !tokenTakenBy.Contains (viewer.ClientIndex))
         {
+            client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
+                client.GetLocalObjectId (tokenEntityId), ObjectType.Token_Tutorial_Torweal,
+                TokenWorld.X, TokenWorld.Y, TokenWorld.Z, 15, TokenSetup));
             tokenShownTo.Add (viewer.ClientIndex);
         }
 
@@ -521,13 +534,32 @@ public static class NewPlayerDungeon
         }
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
-        if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius
-            || tokenTakenBy.Contains (character.ClientIndex)
+        var onPortal = world.DistanceTo (ExitPortalWorld) <= ExitPortalRadius;
+        if (!onPortal)
+        {
+            onPortalSince.Remove (character.ClientIndex);
+        }
+
+        if (!onPortal
             || lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt)
             && (DateTime.UtcNow - exitedAt).TotalSeconds < ExitCooldownSeconds)
         {
             return;
         }
+
+        // A token holder leaves the original way, by using the token while standing here; if that
+        // does not happen within a few seconds the portal still lets them out, so nobody is stuck
+        if (tokenTakenBy.Contains (character.ClientIndex))
+        {
+            var since = onPortalSince.TryGetValue (character.ClientIndex, out var t) ? t : DateTime.UtcNow;
+            onPortalSince[character.ClientIndex] = since;
+            if ((DateTime.UtcNow - since).TotalSeconds < TokenHolderPortalGraceSeconds)
+            {
+                return;
+            }
+        }
+
+        onPortalSince.Remove (character.ClientIndex);
 
         lastExitAt[character.ClientIndex] = DateTime.UtcNow;
         // Removing a tutomsg closes its window, which otherwise stays open after the exit
