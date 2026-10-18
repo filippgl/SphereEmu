@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Godot;
 using SphServer.Godot.Scripts.Navigation;
+using SphServer.Godot.Scripts.Terrain;
 using SphServer.Godot.Scripts.Objects.HelperGizmos;
 using SphServer.Sphere.Game;
 using SphServer.Sphere.Game.WorldObject;
@@ -57,10 +58,14 @@ public partial class ConsoleCommandParser
             DiagnoseNearestSpawner (center, spawners);
         }
 
+        var deadline = Time.GetTicksMsec () + 120_000UL;
         var rng = new RandomNumberGenerator ();
         var checkedSpawners = 0;
         var reasons = new Dictionary<NavPathFailReason, int> ();
         int rawPaths = 0, rawBad = 0, acceptedBad = 0, accepted = 0, unsampled = 0;
+        double guardedMs = 0, guardedMaxMs = 0, rawMs = 0, rawMaxMs = 0;
+        int guardedCalls = 0, rawCalls = 0;
+        var watch = new global::System.Diagnostics.Stopwatch ();
 
         foreach (var spawner in spawners)
         {
@@ -76,13 +81,23 @@ public partial class ConsoleCommandParser
                     continue;
                 }
 
+                watch.Restart ();
                 var result = NavPathQuery.FindPath (spawner, new NavPathRequest (start, goal, leashCenter, leash));
+                var spent = watch.Elapsed.TotalMilliseconds;
+                guardedMs += spent;
+                guardedMaxMs = Math.Max (guardedMaxMs, spent);
+                guardedCalls++;
                 reasons[result.Reason] = reasons.GetValueOrDefault (result.Reason) + 1;
 
                 if (TerrainNavMeshRuntime.IsPointOnNavMesh (start, out var rawStart) &&
                     TerrainNavMeshRuntime.IsPointOnNavMesh (goal, out var rawGoal))
                 {
+                    watch.Restart ();
                     var raw = TerrainNavMeshRuntime.FindPath (rawStart, rawGoal);
+                    var rawSpent = watch.Elapsed.TotalMilliseconds;
+                    rawMs += rawSpent;
+                    rawMaxMs = Math.Max (rawMaxMs, rawSpent);
+                    rawCalls++;
                     if (raw.Length > 0)
                     {
                         rawPaths++;
@@ -99,12 +114,30 @@ public partial class ConsoleCommandParser
                     if (IsObviouslyBadPath (result.Waypoints.ToArray (), leashCenter, leash))
                     {
                         acceptedBad++;
+                        SendFeedback ($"/navcheck accepted absurd: {spawner.Name} r={leash} {start} -> {goal}: " +
+                                      DescribePath (result.Waypoints.ToArray (), leashCenter));
                     }
                 }
+
+                // A raw query can walk the whole joined map; one sample per frame keeps the
+                // server responsive
+                await SphereServer.ServerNode.ToSignal (tree, SceneTree.SignalName.ProcessFrame);
+                if (Time.GetTicksMsec () > deadline)
+                {
+                    break;
+                }
+            }
+
+            if (Time.GetTicksMsec () > deadline)
+            {
+                SendFeedback ("/navcheck: stopped at the 120s budget, partial numbers below");
+                break;
             }
         }
 
-        var reasonText = string.Join (", ", reasons.Select (x => $"{x.Key}={x.Value}"));
+        var reasonText = string.Join (", ", reasons.Select (x => $"{x.Key}={x.Value}")) +
+                         $"; guarded avg {(guardedCalls > 0 ? guardedMs / guardedCalls : 0):F1}ms max {guardedMaxMs:F0}ms, " +
+                         $"raw avg {(rawCalls > 0 ? rawMs / rawCalls : 0):F1}ms max {rawMaxMs:F0}ms";
         SendFeedback ($"/navcheck: {checkedSpawners} spawner(s) within {radius:F0}m; raw paths {rawPaths}, " +
                       $"raw absurd {rawBad}; unsampled {unsampled}; accepted {accepted}, accepted absurd {acceptedBad}; {reasonText}");
     }
@@ -145,6 +178,20 @@ public partial class ConsoleCommandParser
     }
 
     private static float Horizontal (Vector3 a, Vector3 b) => new Vector2 (a.X - b.X, a.Z - b.Z).Length ();
+
+    private static string DescribePath (Vector3[] path, Vector3 leashCenter)
+    {
+        var minY = path.Min (x => x.Y);
+        var maxY = path.Max (x => x.Y);
+        var farthest = path.Max (x => Horizontal (x, leashCenter));
+        var length = 0f;
+        for (var i = 1; i < path.Length; i++)
+        {
+            length += path[i - 1].DistanceTo (path[i]);
+        }
+
+        return $"{path.Length} pts, Y {minY:F1}..{maxY:F1}, farthest {farthest:F0}m from centre, length {length:F0}m";
+    }
 
     private static void CollectSpawners (Node node, List<MonsterSpawner> spawners)
     {
@@ -197,5 +244,107 @@ public partial class ConsoleCommandParser
         }
 
         return maxY - minY > NavCheckBadVerticalSpanMeters;
+    }
+
+    private const float MobWatchRadiusMeters = 150f;
+    private const float MobWatchOffMeshHorizontalMeters = 1.5f;
+    private const float MobWatchOffMeshVerticalMeters = 2f;
+    private const float MobWatchJumpMeters = 10f;
+
+    // Samples moving mobs near the player: standing off the navmesh is inside a wall or under
+    // the floor, a long hop between samples is a teleport across joined meshes
+    private void MobWatch (string args)
+    {
+        var seconds = float.TryParse ((args ?? string.Empty).Trim (), NumberStyles.Float,
+            CultureInfo.InvariantCulture, out var v) ? v : 60f;
+        if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out _))
+        {
+            SendFeedback ("/mobwatch needs a connected client with a position.");
+            return;
+        }
+
+        SendFeedback ($"/mobwatch: watching moving mobs within {MobWatchRadiusMeters:F0}m for {seconds:F0}s");
+        Callable.From (() => RunMobWatch (seconds)).CallDeferred ();
+    }
+
+    private async void RunMobWatch (float seconds)
+    {
+        var tree = SphereServer.ServerNode.GetTree ();
+        var last = new Dictionary<ulong, Vector3> ();
+        var watched = new HashSet<ulong> ();
+        int samples = 0, offMesh = 0, jumps = 0, depthFlips = 0;
+        var worst = string.Empty;
+        var worstDeviation = 0f;
+        var end = Time.GetTicksMsec () + (ulong) (seconds * 1000f);
+        while (Time.GetTicksMsec () < end)
+        {
+            await SphereServer.ServerNode.ToSignal (tree.CreateTimer (0.5), SceneTreeTimer.SignalName.Timeout);
+            if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out var player))
+            {
+                break;
+            }
+
+            var monsters = new List<Monster> ();
+            CollectMonsters (SphereServer.ServerNode, monsters);
+            foreach (var monster in monsters)
+            {
+                var id = monster.GetInstanceId ();
+                var pos = monster.GlobalPosition;
+                if (Horizontal (pos, player) > MobWatchRadiusMeters)
+                {
+                    last.Remove (id);
+                    continue;
+                }
+
+                var moving = monster.NavMode != MonsterNavMode.Idle;
+                if (last.TryGetValue (id, out var prev) && moving)
+                {
+                    watched.Add (id);
+                    samples++;
+                    if (prev.DistanceTo (pos) > MobWatchJumpMeters)
+                    {
+                        jumps++;
+                    }
+
+                    if (IndoorAreaCriteria.IsIndoorDepth (prev.Y) != IndoorAreaCriteria.IsIndoorDepth (pos.Y))
+                    {
+                        depthFlips++;
+                    }
+
+                    var onMesh = TerrainNavMeshRuntime.IsPointOnNavMesh (pos, out var snap);
+                    var dv = onMesh ? Mathf.Abs (snap.Y - pos.Y) : float.MaxValue;
+                    var dh = onMesh ? Horizontal (snap, pos) : float.MaxValue;
+                    if (dv > MobWatchOffMeshVerticalMeters || dh > MobWatchOffMeshHorizontalMeters)
+                    {
+                        offMesh++;
+                        var deviation = Mathf.Min (Mathf.Max (dv, dh), 9999f);
+                        if (deviation > worstDeviation)
+                        {
+                            worstDeviation = deviation;
+                            worst = $"{monster.Name} {monster.NavMode} at {pos}, mesh {(onMesh ? snap.ToString () : "none")}";
+                        }
+                    }
+                }
+
+                last[id] = pos;
+            }
+        }
+
+        SendFeedback ($"/mobwatch: {watched.Count} moving mob(s), {samples} sample(s); off navmesh {offMesh}, " +
+                      $"jumps>{MobWatchJumpMeters:F0}m {jumps}, surface/dungeon flips {depthFlips}" +
+                      (worst.Length > 0 ? $"; worst {worstDeviation:F1}m: {worst}" : string.Empty));
+    }
+
+    private static void CollectMonsters (Node node, List<Monster> monsters)
+    {
+        if (node is Monster monster)
+        {
+            monsters.Add (monster);
+        }
+
+        foreach (var child in node.GetChildren ())
+        {
+            CollectMonsters (child, monsters);
+        }
     }
 }

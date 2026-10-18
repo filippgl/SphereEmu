@@ -47,6 +47,8 @@ public partial class Monster
     private MonsterHomeBinding? homeBinding;
     private MonsterSpawner? homeSpawner;
     private MonsterNavMode navMode = MonsterNavMode.Idle;
+
+    public MonsterNavMode NavMode => navMode;
     private Vector3 navGoalWorld;
     private float navRepathCooldown;
     private readonly List<Vector3> navWaypoints = [];
