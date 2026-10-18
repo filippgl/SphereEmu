@@ -53,6 +53,7 @@ public readonly struct GameplayRecord
     public const int SubjectTypeNpcQuestTitle = 205;
     public const int SubjectTypeNpcTrade = 213;
     public const int SubjectTypeSackMobLoot = 407;
+    public const int SubjectTypeBank = 226;
 
     /// Item modules read an 8-bit ContMan command after the tag, where the player reads 4
     private const int ObjectCommandBit = BodyBit + 53;

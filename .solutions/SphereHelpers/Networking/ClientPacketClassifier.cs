@@ -29,7 +29,8 @@ public enum ClientPacketEvent
     NpcInteractClose,
     ItemLeftCell,
     BackpackContMan,
-    ItemStack
+    ItemStack,
+    BankRequest
 }
 
 public readonly record struct ClientPacketClassification (
@@ -90,6 +91,12 @@ public static class ClientPacketClassifier
         if (IsStatsUpdateRequest (frame))
         {
             return Result (ClientPacketEvent.StatsUpdateRequest, 1.0, "0x32 08 40 23 02 action 17", true);
+        }
+
+        // The bank window sends region 12 from the bank's own process
+        if (identity.SubjectType == GameplayRecord.SubjectTypeBank && identity.Tag == 13)
+        {
+            return Result (ClientPacketEvent.BankRequest, 1.0, "record: bank window", true);
         }
 
         if (identity.Tag == GameplayRecord.TagObjectInteract)
@@ -417,6 +424,7 @@ public static class ClientPacketClassifier
             ClientPacketEvent.ItemLeftCell => "client.item.left_cell",
             ClientPacketEvent.BackpackContMan => "client.item.backpack",
             ClientPacketEvent.ItemStack => "client.item.stack",
+            ClientPacketEvent.BankRequest => "client.bank.request",
             _ => "client.none"
         };
 

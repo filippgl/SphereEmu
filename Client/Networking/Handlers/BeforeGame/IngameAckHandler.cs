@@ -118,6 +118,7 @@ public class IngameAckHandler (ushort localId, ClientConnection clientConnection
             }
         }
 
+        clientConnection.DeclareBank ();
         clientConnection.MaybeScheduleNetworkPacketSend (ItemSlotReserve.BuildUnlock (localId));
         if (SphServer.Shared.WorldState.ActiveClients.Get (localId) is { } client)
         {
