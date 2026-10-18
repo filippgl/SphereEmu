@@ -82,6 +82,7 @@ public partial class ConsoleCommandParser
         RegisteredCommands["clearinv"] = ClearInventory;
         RegisteredCommands["tp"] = Teleport;
         RegisteredCommands["npd"] = EnterNewPlayerDungeon;
+        RegisteredCommands["pos"] = ShowPosition;
         RegisteredCommands["cult"] = Cult;
     }
 
@@ -399,5 +400,15 @@ public partial class ConsoleCommandParser
 
         var full = args.Trim ().Equals ("full", StringComparison.OrdinalIgnoreCase);
         NewPlayerDungeon.Enter (client, replayCapturedObjects: full);
+    }
+
+    /// <summary>
+    /// World coords in the same form /tp takes; the DB keeps Y and Z negated
+    /// </summary>
+    private void ShowPosition (string args)
+    {
+        var c = currentCharacterDbEntry;
+        SendFeedback (string.Create (CultureInfo.InvariantCulture,
+            $"/pos: {c.X:F1} {-c.Y:F1} {-c.Z:F1} angle {c.Angle:F2}"));
     }
 }
