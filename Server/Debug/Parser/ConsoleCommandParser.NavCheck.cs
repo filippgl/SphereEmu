@@ -447,6 +447,10 @@ public partial class ConsoleCommandParser
             TerrainNavMeshRuntime.IsPointOnNavMesh (goal, out var b);
             var request = new NavPathRequest (start, goal, c, leash);
             var files = Time (() => TerrainNavMeshRuntime.HasAnyTileFiles ());
+            var navDir = global::System.IO.Path.GetFullPath (TerrainBakePaths.GeneratedNavMeshesDir);
+            var oldFiles = Time (() => _ = global::System.IO.Directory.Exists (navDir)
+                                           && global::System.IO.Directory.GetFiles (navDir, "*.res").Length > 0);
+            var oneClosest = Time (() => TerrainNavMeshRuntime.TryClosestPoint (start, out _));
             var ensure = Time (() => TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, c, leash + 8f));
             var sync = Time (() => TerrainNavMeshRuntime.TrySyncImmediate ());
             var snaps = Time (() =>
@@ -457,7 +461,8 @@ public partial class ConsoleCommandParser
             var raw = Time (() => TerrainNavMeshRuntime.FindPath (a, b));
             var full = Time (() => NavPathQuery.FindPath (spawner, request));
             SendFeedback (string.Create (CultureInfo.InvariantCulture,
-                $"/navcheck bench ({NavBenchRuns} runs, ms each): files {files:F2}, ensureTiles {ensure:F2}, " +
+                $"/navcheck bench ({NavBenchRuns} runs, ms each): files {files:F2} (old scan {oldFiles:F2}), " +
+                $"1 closestPoint {oneClosest:F2}, ensureTiles {ensure:F2}, " +
                 $"sync {sync:F2}, 2 snaps {snaps:F2}, navFindPath {raw:F2}, guarded FindPath {full:F2}; " +
                 $"{spawner.Name} {Horizontal (start, goal):F0}m apart"));
             return;
