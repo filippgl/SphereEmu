@@ -83,6 +83,24 @@ public static class NewPlayerDungeon
     /// </summary>
     private const ushort GroundContainerId = 0xFF00;
 
+    /// <summary>
+    /// tutomsg triggers: the client opens language	utoNN.hts while the player stands near one.
+    /// Numbers follow the tuto texts (greeting, sword, Псоглавец, merchant, powder, stats, exit);
+    /// positions are the x000 "empty" markers along the route
+    /// </summary>
+    private static readonly (ushort MessageNumber, Vector3 World)[] TutorialPoints =
+    [
+        (1, new (-1099.4f, 4501.5f, 1899.9f)),
+        (2, new (-1126.5f, 4501.5f, 1900.0f)),
+        (3, new (-1144.9f, 4501.5f, 1904.8f)),
+        (4, new (-1133.2f, 4501.5f, 1930.6f)),
+        (5, new (-1117.5f, 4501.5f, 1930.1f)),
+        (6, new (-1099.8f, 4501.5f, 1933.0f)),
+        (7, new (-1099.6f, 4501.5f, 1945.2f))
+    ];
+
+    private static readonly ushort[] tutorialEntityIds = new ushort[TutorialPoints.Length];
+    private static ushort exitTeleportEntityId;
     private static ushort labyrinthEntityId;
     private static ushort starterSwordEntityId;
     private static Monster? dungeonMob;
@@ -187,6 +205,7 @@ public static class NewPlayerDungeon
 
             client.MaybeQueueNetworkPacketSend (CommonPackets.BuildLabyrinthSpawn (
                 client.GetLocalObjectId (GetLabyrinthEntityId ()), LabyrinthX, LabyrinthY, LabyrinthZ, MazeId));
+            SendTutorialObjects (client);
             if (replayCapturedObjects)
             {
                 client.MaybeQueueNetworkPacketSend (CommonPackets.LoadNewPlayerDungeon);
@@ -202,6 +221,35 @@ public static class NewPlayerDungeon
         {
             SphLogger.Error ("New player dungeon enter failed", ex);
         }
+    }
+
+    /// <summary>
+    /// The tutorial triggers and the telep1 exit portal; labyr builds only walls, so the original
+    /// server spawned these. The token on the floor comes with the captured dungeon objects
+    /// </summary>
+    private static void SendTutorialObjects (SphereClient client)
+    {
+        for (var i = 0; i < TutorialPoints.Length; i++)
+        {
+            if (tutorialEntityIds[i] == 0)
+            {
+                tutorialEntityIds[i] = WorldObjectIndex.New ();
+            }
+
+            var (number, world) = TutorialPoints[i];
+            client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
+                client.GetLocalObjectId (tutorialEntityIds[i]), ObjectType.Tutorial_Message, world.X, world.Y, world.Z,
+                15, [(byte) number, (byte) (number >> 8)]));
+        }
+
+        if (exitTeleportEntityId == 0)
+        {
+            exitTeleportEntityId = WorldObjectIndex.New ();
+        }
+
+        client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
+            client.GetLocalObjectId (exitTeleportEntityId), ObjectType.Teleport,
+            ExitPortalWorld.X, ExitPortalWorld.Y, ExitPortalWorld.Z));
     }
 
     /// <summary>

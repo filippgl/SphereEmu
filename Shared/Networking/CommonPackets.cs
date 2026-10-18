@@ -680,30 +680,43 @@ public static class CommonPackets
     /// autostart Cli program runs LoadLab after one tick and gives up while the id is still -1.
     /// LoadLab builds params\mazes\{'a' + id / 1000}{id % 1000:000}.mbd around the spawn position
     /// </summary>
-    public static byte[] BuildLabyrinthSpawn (ushort entityId, float x, float y, float z, ushort mazeId)
+    public static byte[] BuildLabyrinthSpawn (ushort entityId, float x, float y, float z, ushort mazeId) =>
+        BuildContManSpawn (entityId, ObjectType.Dungeon, x, y, z, 15, [(byte) (mazeId & 0xFF), (byte) (mazeId >> 8)]);
+
+    /// <summary>
+    /// Spawn of a module whose EInit is x, y, z, angle, contain state and four varints (labyr,
+    /// telep1, tutomsg, tokenst), with an optional ContMan command in the same frame; the client
+    /// reads that command as the object's setup (maze id, tutorial message number, token target)
+    /// </summary>
+    public static byte[] BuildContManSpawn (ushort entityId, ObjectType moduleTag, float x, float y, float z,
+                                            byte? command = null, byte[]? payload = null)
     {
-        const ushort labyrModuleTag = (ushort) ObjectType.Dungeon;
         var stream = SphBitStream.GetWriteBitStream ();
         stream.WriteByte (0, 1); // has_position
         stream.WriteUInt16 (0, 15); // tick
         stream.WriteUInt16 (entityId, 16);
         stream.WriteByte (0, 2); // process_id high
-        stream.WriteUInt16 (labyrModuleTag, 12);
+        stream.WriteUInt16 ((ushort) moduleTag, 12);
         stream.WriteByte (62, 7); // wire = region 61 + 1 (SpawnSnapshot)
         WriteIeeeFloat (stream, x);
         WriteIeeeFloat (stream, y);
         WriteIeeeFloat (stream, z);
         stream.WriteByte (0, 8); // angle
         stream.WriteByte (0, 2); // contain_state
-        // EInit order: hp, max hp, 0, 0; labyr data defaults hp to 100/100
+        // EInit order: hp, max hp, 0, 0; these modules default hp to 100/100
         WriteMbcVarint (stream, 100);
         WriteMbcVarint (stream, 100);
         WriteMbcVarint (stream, 0);
         WriteMbcVarint (stream, 0);
-        stream.WriteByte (5, 7); // wire = region 4 + 1 (ContMan, u8 command)
-        stream.WriteByte (15, 8);
-        stream.WriteByte (2, 8);
-        stream.WriteBytes ([(byte) (mazeId & 0xFF), (byte) (mazeId >> 8)], 2, true);
+        if (command is { } cmd)
+        {
+            payload ??= [];
+            stream.WriteByte (5, 7); // wire = region 4 + 1 (ContMan, u8 command)
+            stream.WriteByte (cmd, 8);
+            stream.WriteByte ((byte) payload.Length, 8);
+            stream.WriteBytes (payload, payload.Length, true);
+        }
+
         return Packet.ToByteArray (stream.GetStreamData (), 1);
     }
 
