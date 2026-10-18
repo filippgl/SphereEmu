@@ -70,9 +70,10 @@ public static class NavPathQuery
     private const float WaypointLeashMarginMeters = 2f;
 
     /// <summary>
-    /// Climbing steeper than 1:1 between waypoints is a wall or a drop, not a slope or stairs
+    /// The bake walks slopes up to 70 degrees (rise 2.75 per metre); steeper than 3:1 between
+    /// waypoints is a wall or a drop, not a slope or stairs
     /// </summary>
-    private const float MaxWaypointSlope = 1f;
+    private const float MaxWaypointSlope = 3f;
 
     private const float MinWaypointRiseMeters = 1.5f;
 
