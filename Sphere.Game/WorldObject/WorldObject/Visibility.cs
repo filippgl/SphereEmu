@@ -19,6 +19,11 @@ public partial class WorldObject
     private Area3D? _visibilityArea;
 
     /// <summary>
+    /// The client keeps the entity: a despawn broadcast after this skips it
+    /// </summary>
+    protected void ForgetVisibleClient (SphereClient client) => _visibleClients.Remove (client);
+
+    /// <summary>
     /// The Area3D is created on first proximity, not at startup
     /// </summary>
     internal void EnsureVisibilityArea ()

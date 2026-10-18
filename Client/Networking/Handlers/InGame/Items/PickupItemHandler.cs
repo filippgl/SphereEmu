@@ -234,7 +234,7 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
     /// <summary>
     /// A dropped item is lifted for everyone who sees it and no longer goes back to its dropper
     /// </summary>
-    private static void TakeOffTheGround (ItemDbEntry item)
+    private void TakeOffTheGround (ItemDbEntry item)
     {
         if (item.DroppedOnGroundBy is null)
         {
@@ -243,7 +243,7 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
 
         item.DroppedOnGroundBy = null;
         DbConnection.Items.Update (item);
-        GroundItem.Find (item.Id)?.PickedUp ();
+        GroundItem.Find (item.Id)?.PickedUp (client);
     }
 
     /// <summary>

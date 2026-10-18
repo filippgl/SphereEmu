@@ -234,9 +234,10 @@ public static class ClientPacketClassifier
             return Result (ClientPacketEvent.InvalidOrTrailing, 0, "frame length is invalid", false);
         }
 
-        // 0x26 is also the equipment swap; 08 40 A3 has to miss before this is a keepalive
+        // 0x26 is also the equipment swap (08 40 A3) and the drop of a dragged ground item into a
+        // cell (08 40 63); both have to miss before this is a keepalive
         if (declaredLength == 0x26 &&
-            !(frame.Length > 15 && frame[13] == 0x08 && frame[14] == 0x40 && frame[15] == 0xA3))
+            !(frame.Length > 15 && frame[13] == 0x08 && frame[14] == 0x40 && frame[15] is 0xA3 or 0x63))
         {
             return Result (ClientPacketEvent.PositionKeepalive, 1.0, "ClientConnection case 0x26", true);
         }
@@ -292,6 +293,10 @@ public static class ClientPacketClassifier
 
             case 0x25 when b13 == 0x08 && b14 == 0x40 && b15 == 0x63:
                 // Same 08 40 63 as the drop; length 0x25 is the drag
+                return Result (ClientPacketEvent.ItemDragOnGround, 1.0, "handler signature 08 40 63", true);
+
+            case 0x26 when b13 == 0x08 && b14 == 0x40 && b15 == 0x63:
+                // The drag ends in an inventory cell; the item is the one the 0x25 frame dragged
                 return Result (ClientPacketEvent.ItemDragOnGround, 1.0, "handler signature 08 40 63", true);
 
             case 0x2D when b13 == 0x08 && b14 == 0x40 && b15 == 0x63:

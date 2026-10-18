@@ -71,9 +71,10 @@ public partial class GroundItem : WorldObject
     }
 
     /// <summary>
-    /// Picked up: the picker already has it in a slot, everyone else loses it from the ground
+    /// Picked up: the picker already has it in a slot, everyone else loses it from the ground.
+    /// The picker's entity is now the inventory item, so it gets no despawn
     /// </summary>
-    public void PickedUp ()
+    public void PickedUp (SphereClient picker)
     {
         if (_gone)
         {
@@ -81,6 +82,7 @@ public partial class GroundItem : WorldObject
         }
 
         SphLogger.Info ($"Ground item {ID:X4} picked up");
+        ForgetVisibleClient (picker);
         Remove ();
     }
 
