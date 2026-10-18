@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Linq;
 using System.Threading.Tasks;
+using SphereHelpers.Extensions;
 using SphServer.Client.Networking.GameplayLogic.Stats;
 using SphServer.Packets;
 using SphServer.Shared.Db;
@@ -66,6 +67,19 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection, 
             }
 
             Log (itemId, name, "not carried");
+            return;
+        }
+
+        if (item.WireObjectType == ObjectType.Token_Tutorial_Torweal)
+        {
+            var identity = SphServer.Helpers.Networking.GameplayRecord.ReadIdentity (frame);
+            var targetBit = 165 + (identity.PositionFlag ? 45 : 0);
+            if (frame.Length * 8 >= targetBit + 24)
+            {
+                var stream = new BitStreams.BitStream (frame);
+                stream.ReadBits (targetBit);
+                NewPlayerDungeon.UseExitToken (client, item, (ushort) stream.ReadUInt32 (24));
+            }
             return;
         }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Godot;
 using SphServer.Client.Networking.GameplayLogic.Stats;
 using SphServer.Helpers;
@@ -43,6 +44,8 @@ public static class NewPlayerDungeon
     private const float LabyrinthZ = 1900f;
 
     private const int StartingMoney = 10;
+    private const ushort TutorialVendorId = 0x0B15;
+    private static TutorialVendor? tutorialVendor;
     private const double TeleportDelaySeconds = 1;
     private const double WorldLoadPollSeconds = 0.25;
     private const double FirstTeleportMaxWaitSeconds = 10;
@@ -134,9 +137,7 @@ public static class NewPlayerDungeon
 
     private const double ExitCooldownSeconds = 10;
 
-    private const double TokenHolderPortalGraceSeconds = 10;
 
-    private static readonly Dictionary<ushort, DateTime> onPortalSince = [];
 
     /// <summary>
     /// When the client's own position update last put it inside the maze; once it has, the
@@ -300,7 +301,6 @@ public static class NewPlayerDungeon
 
             client.MaybeQueueNetworkPacketSend (CommonPackets.BuildLabyrinthSpawn (
                 client.GetLocalObjectId (GetLabyrinthEntityId ()), LabyrinthX, LabyrinthY, LabyrinthZ, MazeId));
-            SendTutorialObjects (client);
             if (replayCapturedObjects)
             {
                 client.MaybeQueueNetworkPacketSend (CommonPackets.LoadNewPlayerDungeon);
@@ -309,7 +309,9 @@ public static class NewPlayerDungeon
                 NetworkedStatsUpdater.Update (character, client.MaybeQueueNetworkPacketSend, full: true);
             }
 
+            SendTutorialObjects (client);
             SendStarterSword (client);
+            EnsureTutorialVendor ();
             EnsureDungeonMob ();
 
             SphLogger.Info ($"New player dungeon loaded for {character.Name}. Client ID: {character.ClientIndex:X4}");
@@ -351,7 +353,9 @@ public static class NewPlayerDungeon
 
         client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (ReplayTokenEntityId));
         // A token already in this client's bag would jump back onto the stone if spawned again
-        if (client.CurrentCharacter is { } viewer && !tokenTakenBy.Contains (viewer.ClientIndex))
+        if (client.CurrentCharacter is { } viewer && !tokenTakenBy.Contains (viewer.ClientIndex)
+            && !viewer.Items.Values.Any (id =>
+                DbConnection.Items.FindById (id)?.WireObjectType == ObjectType.Token_Tutorial_Torweal))
         {
             client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
                 client.GetLocalObjectId (tokenEntityId), ObjectType.Token_Tutorial_Torweal,
@@ -394,6 +398,36 @@ public static class NewPlayerDungeon
             new Vector3 (DungeonMobWorld.X, -DungeonMobWorld.Y, -DungeonMobWorld.Z));
         dungeonMob = monster;
         SphLogger.Info ($"New player dungeon: spawned {monsterType} [{monster.ID:X4}]");
+    }
+
+    private static void EnsureTutorialVendor ()
+    {
+        if (tutorialVendor is not null && GodotObject.IsInstanceValid (tutorialVendor))
+        {
+            return;
+        }
+
+        if (ActiveWorldObjects.Get (TutorialVendorId) is not null ||
+            !SphObjectDb.GameObjectDataDb.TryGetValue (601, out var catalog))
+        {
+            return;
+        }
+
+        WorldObjectIndex.TryReserve (TutorialVendorId);
+        tutorialVendor = new TutorialVendor
+        {
+            ID = TutorialVendorId,
+            Name = "NewPlayerDungeonVendor",
+            NpcType = NpcType.TradeAlchemy,
+            VendorItemTierMin = 1,
+            VendorItemTierMax = 1
+        };
+        var powder = ItemDbEntry.CreateFromGameObject (SphGameObject.CreateFromGameObject (catalog));
+        powder.Id = WorldObjectIndex.NewItem ();
+        powder.ItemCount = 1;
+        powder.ParentContainerId = TutorialVendorId;
+        tutorialVendor.ItemsOnSale.Add (powder);
+        SphereServer.ServerNode.CallDeferred (Node.MethodName.AddChild, tutorialVendor);
     }
 
     /// <summary>
@@ -461,11 +495,20 @@ public static class NewPlayerDungeon
         tokenShownTo.Remove (character.ClientIndex);
         tokenTakenBy.Add (character.ClientIndex);
         var playerId = character.ClientIndex;
-        client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodePutInto (localTokenId, ObjectType.Token_Tutorial_Torweal,
+        var token = new ItemDbEntry
+        {
+            Id = WorldObjectIndex.NewItem (),
+            ObjectType = ObjectType.Token_Tutorial_Torweal,
+            ItemCount = 1,
+            Weight = 10
+        };
+        DbConnection.SaveItem (token);
+        character.Items[slot] = token.Id;
+        client.SaveCharacter ();
+        client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (localTokenId));
+        client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.Encode (token,
             SphServer.Shared.BitStream.SphBitStream.ByteSwap (playerId)));
-        // Item scripts keep their amount at 0 until this arrives, and TestIt then divides by it
-        client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodeCount (localTokenId, ObjectType.Token_Tutorial_Torweal, 1));
-        if (ItemSlotReserve.Build (playerId, slot, localTokenId) is { } reserve)
+        if (ItemSlotReserve.Build (playerId, slot, token.Id) is { } reserve)
         {
             client.MaybeQueueNetworkPacketSend (reserve);
         }
@@ -516,50 +559,41 @@ public static class NewPlayerDungeon
                                                          && Math.Abs (-character.Z - LabyrinthZ) < 100;
     }
 
-    /// <summary>
-    /// Called on every position update; the portal is client-side scenery, so the exit is a
-    /// proximity check
-    /// </summary>
     public static void CheckExit (SphereClient client)
     {
-        if (client.CurrentCharacter is not { } character)
-        {
-            return;
-        }
-
-        // Called on the client's position updates, so this is where the client confirms the teleport
-        if (IsInside (character))
+        if (client.CurrentCharacter is { } character && IsInside (character))
         {
             lastInsideReportAt[character.ClientIndex] = DateTime.UtcNow;
         }
+    }
+
+    public static bool UseExitToken (SphereClient client, ItemDbEntry token, ushort targetId)
+    {
+        if (client.CurrentCharacter is not { } character || !IsInside (character) ||
+            targetId != client.GetLocalObjectId (exitTeleportEntityId) ||
+            !character.Items.ContainsValue (token.Id))
+        {
+            return false;
+        }
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
-        var onPortal = world.DistanceTo (ExitPortalWorld) <= ExitPortalRadius;
-        if (!onPortal)
+        if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius)
         {
-            onPortalSince.Remove (character.ClientIndex);
+            return false;
         }
 
-        if (!onPortal
-            || lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt)
-            && (DateTime.UtcNow - exitedAt).TotalSeconds < ExitCooldownSeconds)
+        foreach (var slot in character.Items.Where (x => x.Value == token.Id).Select (x => x.Key).ToList ())
         {
-            return;
-        }
-
-        // A token holder leaves the original way, by using the token while standing here; if that
-        // does not happen within a few seconds the portal still lets them out, so nobody is stuck
-        if (tokenTakenBy.Contains (character.ClientIndex))
-        {
-            var since = onPortalSince.TryGetValue (character.ClientIndex, out var t) ? t : DateTime.UtcNow;
-            onPortalSince[character.ClientIndex] = since;
-            if ((DateTime.UtcNow - since).TotalSeconds < TokenHolderPortalGraceSeconds)
+            character.Items.Remove (slot);
+            if (ItemSlotReserve.Build (character.ClientIndex, slot, ItemSlotReserve.NoItem) is { } clear)
             {
-                return;
+                client.MaybeQueueNetworkPacketSend (clear);
             }
         }
-
-        onPortalSince.Remove (character.ClientIndex);
+        DbConnection.Items.Delete (token.Id);
+        WorldObjectIndex.Release ((ushort) token.Id);
+        client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity ((ushort) token.Id));
+        tokenTakenBy.Remove (character.ClientIndex);
 
         lastExitAt[character.ClientIndex] = DateTime.UtcNow;
         // Removing a tutomsg closes its window, which otherwise stays open after the exit
@@ -571,16 +605,12 @@ public static class NewPlayerDungeon
             }
         }
 
-        if (exitTeleportEntityId != 0)
-        {
-            client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (client.GetLocalObjectId (exitTeleportEntityId)));
-        }
-
         client.MaybeQueueNetworkPacketSend (new CharacterDbEntrySerializer (character).GetTeleportByteArray (ExitCoords));
         character.X = ExitCoords.x;
         character.Y = -ExitCoords.y;
         character.Z = -ExitCoords.z;
         client.SaveCharacter ();
-        SphLogger.Info ($"New player dungeon: {character.Name} left through the portal to Torweal");
+        SphLogger.Info ($"New player dungeon: {character.Name} used token {token.Id:X4} on the exit portal");
+        return true;
     }
 }
