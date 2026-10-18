@@ -49,7 +49,16 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection, 
         var name = item.Localization.GetValueOrDefault (Locale.Russian, "?");
         if (!character.Items.Any (x => x.Value == item.Id))
         {
-            // Using something lying in the world is a pickup, which the client asks for separately.
+            // A dragged item never reaches the server when the client's own cell checks refuse it,
+            // so using a dropped item picks it up
+            if (item.DroppedOnGroundBy is not null)
+            {
+                Log (itemId, name, PickupItemHandler.PickUpFromGround (client, clientConnection, item)
+                    ? "picked up off the ground"
+                    : "not picked up");
+                return;
+            }
+
             Log (itemId, name, "not carried");
             return;
         }
