@@ -4,7 +4,6 @@ using System.Threading.Tasks;
 using BitStreams;
 using Godot;
 using SphereHelpers.Extensions;
-using SphServer.Client.Networking.Handlers.InGame.Items;
 using SphServer.Helpers.Networking;
 using SphServer.Shared.BitStream;
 using SphServer.Shared.Db;
@@ -105,10 +104,11 @@ public class DamageTargetHandler (ushort localId, ClientConnection clientConnect
                 broadcastTargetGlobalId, targetGlobalId, targetLocalId, frameKind));
         }
 
-        // The client only sends cuse and never lowers its own amount; one powder per use, not per AoE target
+        // The client only sends cuse and never lowers its own amount; one powder per use, not per AoE target,
+        // and only after the hits above have read the powder from the hand
         if (IsPowder (heldItem) && targets.Count > 0)
         {
-            ItemConsumption.ConsumeOne (broadcastTarget, heldItem);
+            clientConnection.EnqueueClientEvent (new ItemSpentEvent (heldItem));
         }
     }
 
