@@ -35,7 +35,6 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
             return;
         }
 
-        // MainHand repeats the inventory slot, so every slot holding the item is cleared
         var slots = character.Items.Where (kv => kv.Value == itemId).Select (kv => kv.Key).ToList ();
         var item = DbConnection.Items.FindById (itemId);
         if (slots.Count == 0 || item is null)
@@ -44,34 +43,9 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
             return;
         }
 
-        var lookBefore = CharacterWornLook.Capture (character);
-        foreach (var slot in slots)
-        {
-            character.Items.Remove (slot);
-        }
-
-        item.X = character.X;
-        item.Y = character.Y;
-        item.Z = character.Z + DropOffsetZ;
-        item.ParentContainerId = null;
-        DbConnection.Items.Update (item);
-
-        // Same record as carried, reparented to the ground container at the player's feet
-        client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodeWithoutGameId ((ushort) item.Id,
-            (int) item.WireObjectType, GroundContainerId, (float) item.X, (float) -item.Y, (float) -item.Z));
-
-        if (character.RecalcCurrentStats ())
-        {
-            NetworkedStatsUpdater.Update (character);
-        }
-
-        client.SaveCharacter ();
-        if (lookBefore != CharacterWornLook.Capture (character))
-        {
-            client.BroadcastAppearanceRefreshToVisibleClients ();
-        }
-
+        // TODO: the client keeps the item until it gets a loot bag holding it; removing it here
+        // without that desyncs the inventory, so the drop is refused for now
         var name = item.Localization.GetValueOrDefault (Locale.Russian, item.GameObjectType.ToString ());
-        SphLogger.Info ($"Drop to ground: {name} [{itemId:X4}] from {string.Join (",", slots)}. Client ID: {localId:X4}");
+        SphLogger.Info ($"Drop to ground refused: {name} [{itemId:X4}] stays in {string.Join (",", slots)}. Client ID: {localId:X4}");
     }
 }
