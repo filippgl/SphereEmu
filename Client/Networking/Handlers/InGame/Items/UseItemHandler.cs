@@ -11,7 +11,7 @@ using SphServer.Shared.WorldState;
 
 namespace SphServer.Client.Networking.Handlers.InGame.Items;
 
-public class UseItemHandler (ushort localId, ClientConnection clientConnection)
+public class UseItemHandler (ushort localId, ClientConnection clientConnection, SphereClient client)
     : ISphereClientNetworkingHandler
 {
     public async Task Handle (byte[] frame, double delta)
@@ -19,6 +19,12 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection)
         var itemId = (ushort) (frame[11] + frame[12] * 0x100);
         // Item use arms g_6008, so this ack clears it or the client stays wedged
         clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
+
+        if (NewPlayerDungeon.StarterSwordIdFor (client) == itemId)
+        {
+            NewPlayerDungeon.TakeStarterSword (client);
+            return;
+        }
 
         // This client opens a loot sack with the use request, naming the sack instead of an item
         if (DbConnection.ItemContainers.FindById ((int) itemId) is { } bag)
