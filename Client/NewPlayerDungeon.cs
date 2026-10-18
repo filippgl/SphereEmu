@@ -338,11 +338,12 @@ public static class NewPlayerDungeon
         }
 
         client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (ReplayTokenEntityId));
-        client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
-            client.GetLocalObjectId (tokenEntityId), ObjectType.Token_Tutorial_Torweal,
-            TokenWorld.X, TokenWorld.Y, TokenWorld.Z, 15, TokenSetup));
-        if (client.CurrentCharacter is { } viewer)
+        // A token already in this client's bag would jump back onto the stone if spawned again
+        if (client.CurrentCharacter is { } viewer && !tokenTakenBy.Contains (viewer.ClientIndex))
         {
+            client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
+                client.GetLocalObjectId (tokenEntityId), ObjectType.Token_Tutorial_Torweal,
+                TokenWorld.X, TokenWorld.Y, TokenWorld.Z, 15, TokenSetup));
             tokenShownTo.Add (viewer.ClientIndex);
         }
 
@@ -521,8 +522,9 @@ public static class NewPlayerDungeon
         }
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
+        // Token holders still leave by standing on the portal: the client does not yet see our
+        // telep1 under the player's feet, so using the token there only prints "stand on a teleport"
         if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius
-            || tokenTakenBy.Contains (character.ClientIndex)
             || lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt)
             && (DateTime.UtcNow - exitedAt).TotalSeconds < ExitCooldownSeconds)
         {
