@@ -462,6 +462,17 @@ public partial class SphereClient : WorldObject
 	}
 
 	/// <summary>
+	/// Server shutdown path; the admin debug dummy has no socket
+	/// </summary>
+	public void DisconnectSocket ()
+	{
+		if (!IsAdminDebugDummy)
+		{
+			streamPeerTcp?.DisconnectFromHost ();
+		}
+	}
+
+	/// <summary>
 	/// Money (stat 57) is outside the classic 08 C0 sync, so it goes as its own SetStat
 	/// </summary>
 	public void SendMoney ()
