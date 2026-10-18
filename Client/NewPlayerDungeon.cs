@@ -103,6 +103,14 @@ public static class NewPlayerDungeon
 
     private static readonly ushort[] tutorialEntityIds = new ushort[TutorialPoints.Length];
     private static ushort exitTeleportEntityId;
+
+    /// <summary>
+    /// When each client last left through the portal: its next position update can still be on
+    /// the portal, and the entry teleport retries must not pull it back in
+    /// </summary>
+    private static readonly Dictionary<ushort, DateTime> lastExitAt = [];
+
+    private const double ExitCooldownSeconds = 10;
     private static ushort labyrinthEntityId;
     private static ushort starterSwordEntityId;
     private static Monster? dungeonMob;
@@ -173,11 +181,17 @@ public static class NewPlayerDungeon
                 return;
             }
 
+            var startedAt = DateTime.UtcNow;
             Enter (client, replayCapturedObjects: true);
             var sawWorldLoaded = client.WorldLoaded;
             for (var attempt = 1; attempt <= TeleportRetryCount; attempt++)
             {
                 if (!await Delay (client, TeleportRetrySeconds) || client.CurrentCharacter is not { } character)
+                {
+                    return;
+                }
+
+                if (lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt) && exitedAt > startedAt)
                 {
                     return;
                 }
@@ -419,9 +433,26 @@ public static class NewPlayerDungeon
         }
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
-        if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius)
+        if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius
+            || lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt)
+            && (DateTime.UtcNow - exitedAt).TotalSeconds < ExitCooldownSeconds)
         {
             return;
+        }
+
+        lastExitAt[character.ClientIndex] = DateTime.UtcNow;
+        // Removing a tutomsg closes its window, which otherwise stays open after the exit
+        foreach (var id in tutorialEntityIds)
+        {
+            if (id != 0)
+            {
+                client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (client.GetLocalObjectId (id)));
+            }
+        }
+
+        if (exitTeleportEntityId != 0)
+        {
+            client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (client.GetLocalObjectId (exitTeleportEntityId)));
         }
 
         client.MaybeQueueNetworkPacketSend (new CharacterDbEntrySerializer (character).GetTeleportByteArray (ExitCoords));
