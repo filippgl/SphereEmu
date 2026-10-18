@@ -163,11 +163,7 @@ public class ItemContainerDbEntry
     /// </summary>
     public List<byte[]> GetContentsPackets ()
     {
-        var items = Contents.OrderBy (x => x.Key)
-            .Select (x => DbConnection.Items.FindById (x.Value))
-            .Where (x => x is not null)
-            .ToList ();
-
+        var items = GetItems ();
         var packets = new List<byte[]> ();
         var itemList = BuildItemListPacket (items.Select (x => x.Id).ToList ());
         if (itemList is not null)
@@ -178,6 +174,15 @@ public class ItemContainerDbEntry
         packets.AddRange (items.Select (x => ItemRecordEncoder.Encode (x, (ushort) Id)));
         return packets;
     }
+
+    public List<byte[]> GetItemRecordPackets () =>
+        GetItems ().Select (x => ItemRecordEncoder.Encode (x, (ushort) Id)).ToList ();
+
+    private List<ItemDbEntry> GetItems () =>
+        Contents.OrderBy (x => x.Key)
+            .Select (x => DbConnection.Items.FindById (x.Value))
+            .Where (x => x is not null)
+            .ToList ();
 
     /// <summary>
     /// Captured live replies to an open, one per item count; the bytes between ids are weights

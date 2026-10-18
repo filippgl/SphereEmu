@@ -55,11 +55,18 @@ public partial class LootBag : WorldObject
     }
 
     /// <summary>
-    /// The list frame does not carry the records, so both go out when the sack is opened
+    /// Live follows the sack with its items' records; a dropping client only lets go of an item
+    /// once it sees it parented here
     /// </summary>
-    public void SendContentsTo (SphereClient client)
+    protected override void ShowForClient (SphereClient client)
     {
-        foreach (var packet in Container.GetContentsPackets ())
+        if (_despawned)
+        {
+            return;
+        }
+
+        base.ShowForClient (client);
+        foreach (var packet in Container.GetItemRecordPackets ())
         {
             client.MaybeQueueNetworkPacketSend (packet);
         }
