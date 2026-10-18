@@ -72,6 +72,9 @@ public static class CultRules
         character.Clan = clan;
         character.ClanRank = rank ?? cfg.MemberRank;
         NetworkedStatsUpdater.Update (character, refreshPeers: true);
+        // The client learns the clan name only from op 6; the rank refresh alone left it nameless
+        client.MaybeQueueNetworkPacketSend (
+            CommonPackets.BuildClanRankPacket (character.ClientIndex, clan.Name, (int) character.ClanRank, true));
         client.BroadcastClanRefreshToVisibleClients ();
         client.SaveCharacter ();
         SphLogger.Info ($"Cult: {character.Name} joined [{clan.Name}] as {character.ClanRank} (was [{oldClan}])");
