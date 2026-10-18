@@ -698,7 +698,6 @@ public static class NewPlayerDungeon
         character.Y = -ExitCoords.y;
         character.Z = -ExitCoords.z;
         client.SaveCharacter ();
-        client.GrantRespawnProtection ();
         SphLogger.Info ($"New player dungeon: {character.Name} used token {token.Id:X4} on the exit portal");
         return true;
     }
