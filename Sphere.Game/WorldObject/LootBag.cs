@@ -72,8 +72,7 @@ public partial class LootBag : WorldObject
 
     /// <summary>
     /// Built as live sends it; sack_mob_loot.spdp has a 9-bit angle and an extra properties
-    /// record, and the client drew that sack but never filled it. A player's drop also gets the
-    /// item records, since the client keeps a dropped item until it sees it parented here
+    /// record, and the client drew that sack but never filled it
     /// </summary>
     protected override void ShowForClient (SphereClient client)
     {
@@ -83,14 +82,17 @@ public partial class LootBag : WorldObject
         }
 
         client.MaybeQueueNetworkPacketSend (BuildLiveSpawn (client.GetLocalObjectId (ID)));
-        if (Container.DroppedByCharacterId is null)
-        {
-            return;
-        }
 
+        // This client opens the sack window locally, often without an open request, and shows
+        // only what it already holds; items first, so the slot ids resolve when the list lands
         foreach (var packet in Container.GetItemRecordPackets ())
         {
             client.MaybeQueueNetworkPacketSend (packet);
+        }
+
+        if (Container.GetListPacket () is { } list)
+        {
+            client.MaybeQueueNetworkPacketSend (list);
         }
     }
 

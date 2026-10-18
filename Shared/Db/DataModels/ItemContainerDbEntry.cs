@@ -246,6 +246,8 @@ public class ItemContainerDbEntry
         return packets;
     }
 
+    public byte[]? GetListPacket () => BuildItemListPacket (GetItems ());
+
     public List<byte[]> GetItemRecordPackets () =>
         GetItems ().Select (x => ItemRecordEncoder.EncodeInLootBag (x, (ushort) Id)).ToList ();
 
