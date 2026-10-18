@@ -53,6 +53,7 @@ public readonly struct GameplayRecord
     public const int SubjectTypeNpcQuestTitle = 205;
     public const int SubjectTypeNpcTrade = 213;
     public const int SubjectTypeSackMobLoot = 407;
+    public const int SubjectTypeBank = 226;
 
     // What the bag slot takes: ct_bag 400, ct_ubag 401, ct_sac_s 405, ct_sac_m 419, ct_gbag 426
     public static bool IsBackpackType (int subjectType) => subjectType is 400 or 401 or 405 or 419 or 426;
