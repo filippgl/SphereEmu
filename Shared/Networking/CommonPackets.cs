@@ -668,6 +668,48 @@ public static class CommonPackets
         return Packet.ToByteArray (stream.GetStreamData (), 1);
     }
 
+    /// <summary>
+    /// labyr (96) region 61 spawn plus ContMan cmd 15 (RcvUser, u16 maze id) in one frame: the
+    /// autostart Cli program runs LoadLab after one tick and gives up while the id is still -1.
+    /// LoadLab builds params\mazes\{'a' + id / 1000}{id % 1000:000}.mbd around the spawn position
+    /// </summary>
+    public static byte[] BuildLabyrinthSpawn (ushort entityId, float x, float y, float z, ushort mazeId)
+    {
+        const ushort labyrModuleTag = (ushort) ObjectType.Dungeon;
+        var stream = SphBitStream.GetWriteBitStream ();
+        stream.WriteByte (0, 1); // has_position
+        stream.WriteUInt16 (0, 15); // tick
+        stream.WriteUInt16 (entityId, 16);
+        stream.WriteByte (0, 2); // process_id high
+        stream.WriteUInt16 (labyrModuleTag, 12);
+        stream.WriteByte (62, 7); // wire = region 61 + 1 (SpawnSnapshot)
+        WriteIeeeFloat (stream, x);
+        WriteIeeeFloat (stream, y);
+        WriteIeeeFloat (stream, z);
+        stream.WriteByte (0, 8); // angle
+        stream.WriteByte (0, 2); // contain_state
+        // EInit order: hp, max hp, 0, 0; labyr data defaults hp to 100/100
+        WriteMbcVarint (stream, 100);
+        WriteMbcVarint (stream, 100);
+        WriteMbcVarint (stream, 0);
+        WriteMbcVarint (stream, 0);
+        stream.WriteByte (5, 7); // wire = region 4 + 1 (ContMan, u8 command)
+        stream.WriteByte (15, 8);
+        stream.WriteByte (2, 8);
+        stream.WriteBytes ([(byte) (mazeId & 0xFF), (byte) (mazeId >> 8)], 2, true);
+        return Packet.ToByteArray (stream.GetStreamData (), 1);
+    }
+
+    /// <summary>
+    /// IntToBits drops a negative int32, so the float bits go out as two u16 halves
+    /// </summary>
+    private static void WriteIeeeFloat (SphWriteStream stream, float value)
+    {
+        var bits = BitConverter.SingleToUInt32Bits (value);
+        stream.WriteUInt16 ((ushort) bits, 16);
+        stream.WriteUInt16 ((ushort) (bits >> 16), 16);
+    }
+
     public static byte[] LoadNewPlayerDungeon =>
     [
         0xBF, 0x00, 0x2C, 0x01, 0x00, 0x06, 0x7A, 0x2C, 0x0C, 0x10, 0x80, 0x2F, 0x81, 0x1F, 0x01, 0x0B, 0xE2, 0xE0,

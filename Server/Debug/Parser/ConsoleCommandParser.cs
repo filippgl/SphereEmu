@@ -81,6 +81,7 @@ public partial class ConsoleCommandParser
         RegisteredCommands["giveinvns"] = GiveToInventoryByNameWithSuffix;
         RegisteredCommands["clearinv"] = ClearInventory;
         RegisteredCommands["tp"] = Teleport;
+        RegisteredCommands["npd"] = EnterNewPlayerDungeon;
     }
 
     // A GM chat line when a client is attached, otherwise the server console
@@ -389,5 +390,20 @@ public partial class ConsoleCommandParser
                 Console.WriteLine (ex.Message);
             }
         }
+    }
+
+    /// <summary>
+    /// /npd: teleport plus dungeon geometry only; /npd full also replays the captured objects
+    /// </summary>
+    private void EnterNewPlayerDungeon (string args)
+    {
+        if (sphereClient is not { } client)
+        {
+            SendFeedback ("/npd: no client attached");
+            return;
+        }
+
+        var full = args.Trim ().Equals ("full", StringComparison.OrdinalIgnoreCase);
+        NewPlayerDungeon.Enter (client, replayCapturedObjects: full);
     }
 }
