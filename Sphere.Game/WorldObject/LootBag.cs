@@ -1,5 +1,9 @@
+using System;
+using SphereHelpers.Extensions;
 using Godot;
 using SphServer.Client;
+using SphServer.Packets;
+using SphServer.Shared.BitStream;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.GameData.Enums;
 using SphServer.Shared.Logger;
@@ -57,8 +61,19 @@ public partial class LootBag : WorldObject
     }
 
     /// <summary>
-    /// Live follows the sack with its items' records; a dropping client only lets go of an item
-    /// once it sees it parented here
+    /// Bits after the 8-bit angle, identical in every live sack spawn (mobSpawnAndDrops)
+    /// </summary>
+    private const string LiveSpawnTail = "1001000100110100010011";
+
+    /// <summary>
+    /// Live sack spawns are 29 bytes: 22 after the header
+    /// </summary>
+    private const int LiveSpawnContentBits = 22 * 8;
+
+    /// <summary>
+    /// Built as live sends it; sack_mob_loot.spdp has a 9-bit angle and an extra properties
+    /// record, and the client drew that sack but never filled it. A player's drop also gets the
+    /// item records, since the client keeps a dropped item until it sees it parented here
     /// </summary>
     protected override void ShowForClient (SphereClient client)
     {
@@ -67,11 +82,55 @@ public partial class LootBag : WorldObject
             return;
         }
 
-        base.ShowForClient (client);
+        client.MaybeQueueNetworkPacketSend (BuildLiveSpawn (client.GetLocalObjectId (ID)));
+        if (Container.DroppedByCharacterId is null)
+        {
+            return;
+        }
+
         foreach (var packet in Container.GetItemRecordPackets ())
         {
             client.MaybeQueueNetworkPacketSend (packet);
         }
+    }
+
+    private byte[] BuildLiveSpawn (ushort entityId)
+    {
+        var origin = GlobalTransform.Origin;
+        var stream = SphBitStream.GetWriteBitStream ();
+        stream.WriteUInt16 (entityId, 16);
+        stream.WriteByte (0, 2);
+        stream.WriteUInt16 ((ushort) ObjectType.Sack_Mob_Loot, 10);
+        stream.WriteByte (0, 1);
+        stream.WriteByte (0x7C, 8);
+        WriteFloat (stream, origin.X);
+        WriteFloat (stream, -origin.Y);
+        WriteFloat (stream, -origin.Z);
+        stream.WriteByte ((byte) Angle, 8);
+
+        var written = 16 + 2 + 10 + 1 + 8 + 3 * 32 + 8;
+        foreach (var bit in LiveSpawnTail)
+        {
+            stream.WriteByte ((byte) (bit - '0'), 1);
+            written++;
+        }
+
+        for (; written < LiveSpawnContentBits; written++)
+        {
+            stream.WriteByte (0, 1);
+        }
+
+        return Packet.ToByteArray (stream.GetStreamData (), 3);
+    }
+
+    /// <summary>
+    /// Two 16-bit halves: a single 32-bit write drops a top bit of 1
+    /// </summary>
+    private static void WriteFloat (SphWriteStream stream, float value)
+    {
+        var bits = BitConverter.SingleToUInt32Bits (value);
+        stream.WriteUInt16 ((ushort) bits, 16);
+        stream.WriteUInt16 ((ushort) (bits >> 16), 16);
     }
 
     /// <summary>
