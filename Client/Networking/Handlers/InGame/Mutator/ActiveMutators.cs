@@ -137,15 +137,15 @@ public static class ActiveMutators
     private static void Send (SphereClient target, ushort itemId, ushort mutatorId, BelongingSlot slot,
         int seconds, ushort casterId)
     {
-        var playerId = ByteSwap (target.localId);
-        target.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (itemId, ObjectType.Mutator,
-            1000000, 0, 0));
-        target.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodePutInto (itemId, ObjectType.Mutator, playerId));
-        target.MaybeQueueNetworkPacketSend (BuildSetup (itemId, mutatorId, seconds, ByteSwap (casterId)));
-        if (ItemSlotReserve.Build (target.localId, slot, itemId) is { } reserve)
+        // A bare ContMan spawn has no region 6 record, so the effect worked but its slot had no
+        // icon; the spawn now goes as for any special mutator, and the setup after it sets the real
+        // duration and caster
+        foreach (var packet in MutatorHandler.BuildSpecialMutatorPackets (target.localId, itemId,
+                     (SpecialMutator) mutatorId, slot))
         {
-            target.MaybeQueueNetworkPacketSend (reserve);
+            target.MaybeQueueNetworkPacketSend (packet);
         }
+        target.MaybeQueueNetworkPacketSend (BuildSetup (itemId, mutatorId, seconds, ByteSwap (casterId)));
     }
 
     internal static byte[] BuildSetup (ushort itemId, ushort mutatorId, int seconds, ushort casterId)
