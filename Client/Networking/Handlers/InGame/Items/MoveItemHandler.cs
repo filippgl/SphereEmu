@@ -1,6 +1,8 @@
 ﻿using System;
 using System.Threading.Tasks;
 using SphServer.Client.Networking.GameplayLogic.Stats;
+using SphServer.Packets;
+using SphServer.Server;
 using SphServer.Shared.Db;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
@@ -14,6 +16,52 @@ namespace SphServer.Client.Networking.Handlers.InGame.Items;
 public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
     : ISphereClientNetworkingHandler
 {
+    /// <summary>
+    /// Payload of player ContMan cmd 5 len 1: the cell number, as in the slot-set message
+    /// </summary>
+    private const int LeftCellBitOffset = 137;
+
+    /// <summary>
+    /// Long enough for a real move's own request to land first
+    /// </summary>
+    private const double RestoreCellAfterSeconds = 0.5;
+
+    /// <summary>
+    /// The inventory window empties a cell on its own when a drag from it ends elsewhere (_inv
+    /// DnDRes 1), e.g. on a hotkey, which only keeps a reference: the item never left the server's
+    /// slot, so the cell is put back unless a real move took the item away meanwhile
+    /// </summary>
+    public Task HandleLeftCell (byte[] frame, double delta)
+    {
+        var stream = new BitStreams.BitStream (frame);
+        stream.ReadBits (LeftCellBitOffset);
+        var slot = (BelongingSlot) stream.ReadByte (8);
+        var character = clientConnection.GetSelectedCharacter ();
+        if (character is null || !character.Items.TryGetValue (slot, out var itemId))
+        {
+            SphLogger.Info ($"Cell {Enum.GetName (slot) ?? slot.ToString ()} let go of nothing. Client ID: {localId:X4}");
+            return Task.CompletedTask;
+        }
+
+        SphereServer.ServerNode.GetTree ().CreateTimer (RestoreCellAfterSeconds).Timeout += () =>
+        {
+            if (!character.Items.TryGetValue (slot, out var stillThere) || stillThere != itemId)
+            {
+                return;
+            }
+
+            var item = DbConnection.Items.FindById (itemId);
+            if (ItemSlotReserve.Build (localId, slot, itemId, item?.ItemCount ?? 1) is { } reserve)
+            {
+                clientConnection.MaybeScheduleNetworkPacketSend (reserve);
+            }
+
+            SphLogger.Info ($"Cell {Enum.GetName (slot)} restored with {itemId:X4} after the client let go of it. " +
+                            $"Client ID: {localId:X4}");
+        };
+        return Task.CompletedTask;
+    }
+
     public async Task Handle (byte[] frame, double delta)
     {
         // ideally we'd support swapping items but client simply doesn't send anything if slot is

@@ -203,6 +203,9 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
             case ClientPacketEvent.ItemDragOnGround:
                 await dragItemOnGroundHandler!.Handle (frame, delta);
                 break;
+            case ClientPacketEvent.ItemLeftCell:
+                await moveItemHandler!.HandleLeftCell (frame, delta);
+                break;
             case ClientPacketEvent.NpcInteract:
                 await npcInteractionHandler!.Handle (frame, delta);
                 break;
