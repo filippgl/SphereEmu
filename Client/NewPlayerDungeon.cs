@@ -291,7 +291,7 @@ public static class NewPlayerDungeon
     }
 
     /// <summary>
-    /// Inside the x000 maze footprint (about 60 units square around the labyr center)
+    /// Over the x000 maze footprint (about 60 units square around the labyr center)
     /// </summary>
     public static bool IsInside (CharacterDbEntry? character)
     {
@@ -300,7 +300,9 @@ public static class NewPlayerDungeon
             return false;
         }
 
-        return Math.Abs (character.X - LabyrinthX) < 100 && Math.Abs (-character.Y - LabyrinthY) < 50
+        // Any height above 2100: no static geometry exists up there, and a character lost in the
+        // void drifts far above the maze
+        return Math.Abs (character.X - LabyrinthX) < 100 && -character.Y > 2100
                                                          && Math.Abs (-character.Z - LabyrinthZ) < 100;
     }
 
