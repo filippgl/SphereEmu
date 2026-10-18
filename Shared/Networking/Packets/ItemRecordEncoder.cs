@@ -91,10 +91,8 @@ public static class ItemRecordEncoder
             return Encode (item, bagId);
         }
 
-        // The 4-bit form copied from the 2022 captures leaves the sack's cells drawn empty in the
-        // current client; the 8-bit form the inventory uses is parsed, so the sack takes it too
         return EncodeClassic ((ushort) item.Id, (int) item.WireObjectType, item.GameId, SuffixWireFor (item),
-            bagId, ContainedX, 0f, 0f, messageTypeBits: 8, count: item.ItemCount);
+            bagId, ContainedX, 0f, 0f, messageTypeBits: 4, count: item.ItemCount);
     }
 
     /// <summary>
