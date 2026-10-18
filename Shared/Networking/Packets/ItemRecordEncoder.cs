@@ -73,7 +73,7 @@ public static class ItemRecordEncoder
         stream.WriteByte (0, 2);
         stream.WriteUInt16 ((ushort) ((int) wireObjectType & 0xFFF), 12);
         stream.WriteByte (ContManRegionWire, 7);
-        stream.WriteByte ((byte) CountMessage, 8);
+        stream.WriteByte ((byte) CountMessage, 4);
         stream.WriteByte (2, 8);
         stream.WriteUInt16 ((ushort) Math.Max (1, count), 16);
         stream.WriteByte (0, 7);
@@ -150,11 +150,6 @@ public static class ItemRecordEncoder
     /// scripts) shows it in the world with no parent
     /// </summary>
     /// <summary>
-    /// Item modules read an 8-bit ContMan command (sfera_protocol_schema: u8, array8<u8>); only the
-    /// player and the window modules take 4 bits. The 2022 captures had 4 and the current client
-    /// ignores that form
-    /// </summary>
-    /// <summary>
     /// The item half of the live pickup reply: region 2 at the contained position with contain
     /// state 2, then ContMan cmd 0 naming the new parent
     /// </summary>
@@ -177,7 +172,7 @@ public static class ItemRecordEncoder
         stream.WriteByte (0, 8);
         stream.WriteByte (2, 2);
         stream.WriteByte (ContManRegionWire, 7);
-        stream.WriteByte ((byte) PutHereMessage, 8);
+        stream.WriteByte ((byte) PutHereMessage, 4);
         stream.WriteByte (3, 8);
         stream.WriteUInt32 (parentWireId, 24);
         stream.WriteByte (0, 7);
@@ -197,13 +192,13 @@ public static class ItemRecordEncoder
         stream.WriteByte (angle, 8);
         stream.WriteByte (1, 2);
         stream.WriteByte (ContManRegionWire, 7);
-        stream.WriteByte (1, 8);
+        stream.WriteByte (1, 4);
         stream.WriteByte (0, 8);
 
         // The amount stays 0 until a count message sets it, and the client's cell check divides the
         // weight by it: without this the item can never be dragged back into a cell
         stream.WriteByte (ContManRegionWire, 7);
-        stream.WriteByte ((byte) CountMessage, 8);
+        stream.WriteByte ((byte) CountMessage, 4);
         stream.WriteByte (2, 8);
         stream.WriteUInt16 ((ushort) Math.Max (1, item.ItemCount), 16);
         stream.WriteByte (0, 7);
