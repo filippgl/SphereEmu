@@ -360,6 +360,7 @@ public partial class ConsoleCommandParser
                 sphereClient?.MaybeQueueNetworkPacketSend (
                     new CharacterDbEntrySerializer (currentCharacterDbEntry).GetTeleportByteArray (new WorldCoords (
                         coords[0], coords[1], coords[2])));
+                sphereClient?.GrantRespawnProtection ();
             }
             catch (Exception ex)
             {
@@ -379,6 +380,7 @@ public partial class ConsoleCommandParser
                         var coords = SavedCoords.TeleportPoints[continent][poiType][location[2]];
                         sphereClient?.MaybeQueueNetworkPacketSend (
                             new CharacterDbEntrySerializer (currentCharacterDbEntry).GetTeleportByteArray (coords));
+                        sphereClient?.GrantRespawnProtection ();
                     }
                 }
             }

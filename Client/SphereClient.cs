@@ -56,6 +56,10 @@ public partial class SphereClient : WorldObject
 	// SceneTreeTimer is refcounted; a local dies before Timeout
 	private SceneTreeTimer? playerRespawnTimer;
 	private SceneTreeTimer? ownWornGearTimer;
+	private ulong respawnProtectionEndsMsec;
+
+	// Mobs leave a player alone this long after a revive or a teleport
+	public const double RespawnProtectionSeconds = 5;
 
 	// The model appears after the first keepalive, once _pcontrol ControlMove runs
 	public const double OwnWornGearAfterEntrySeconds = 2;
@@ -707,6 +711,7 @@ public partial class SphereClient : WorldObject
 
 		SaveCharacter ();
 		SyncUnderwaterBreath ();
+		GrantRespawnProtection ();
 
 		SphLogger.Info (
 			$"Player respawn after death. Client ID: {localId:X4}, effect 758, HP={respawnHp}, city {city} " +
@@ -734,6 +739,20 @@ public partial class SphereClient : WorldObject
 		}
 
 		return (city, center);
+	}
+
+	public bool IsRespawnProtected => Time.GetTicksMsec () < respawnProtectionEndsMsec;
+
+	/// <summary>
+	/// Mobs neither pick nor hit the player until it runs out; the client shows the invulnerability sphere
+	/// </summary>
+	public void GrantRespawnProtection ()
+	{
+		respawnProtectionEndsMsec = Time.GetTicksMsec () + (ulong) (RespawnProtectionSeconds * 1000);
+		if (CurrentCharacter is not null)
+		{
+			MaybeQueueNetworkPacketSend (CommonPackets.ClientInvulnerableEffect (CurrentCharacter.ClientIndex));
+		}
 	}
 
 	/// <summary>

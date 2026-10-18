@@ -66,6 +66,7 @@ public static class InquisitorAbilities
                 victim.Angle = point.turn;
                 targetClient.SaveCharacter ();
                 targetClient.UpdateCoordinatesInWorld ();
+                targetClient.GrantRespawnProtection ();
                 Tell (caster, self
                     ? "Возрождение: вы перенесены в ближайший город."
                     : "Возрождение: цель перенесена к месту появления персонажей с очень плохой кармой.");
