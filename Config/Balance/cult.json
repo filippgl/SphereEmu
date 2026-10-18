@@ -1,0 +1,38 @@
+{
+    // cult.json — Культ шестерых event clan, loaded as CultBalance.
+
+    // invented: any id no real clan uses; members keep it across renames.
+    "clan_id": 6,
+
+    // recovered (player memory): the clan was named КУЛЬТ.
+    "clan_name": "КУЛЬТ",
+
+    // invented: ClanRank for /cult join without a rank (3 = Neophyte).
+    "member_rank": "Neophyte",
+
+    // recovered (player memory): members revived on Тантал, at a tower. World x, y, z, turn;
+    // null keeps the nearest city until the tower is located (stand there and run /cult here).
+    "respawn": null,
+
+    // recovered (player memory): karma worked the other way round for members and changed drops.
+    // invented: the numbers. Members read these through the mirrored tier (very bad acts as benign).
+    "drop_chance_multiplier_per_karma": {
+        "Очень_Плохая": 0.6,
+        "Плохая": 0.8,
+        "Нейтральная": 1.0,
+        "Хорошая": 1.3,
+        "Благая": 1.6
+    },
+
+    // invented: extra loot items on top of the 1-2 roll, same mirrored reading.
+    "extra_drop_items_per_karma": {
+        "Очень_Плохая": 0,
+        "Плохая": 0,
+        "Нейтральная": 0,
+        "Хорошая": 0,
+        "Благая": 1
+    },
+
+    // invented: off keeps the stock drop odds for everyone outside the clan.
+    "karma_drops_for_non_members": false
+}

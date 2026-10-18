@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using SphServer.Client.Networking.GameplayLogic.Stats;
+using SphServer.Server.GameplayLogic.Cult;
 using SphServer.Server.GameplayLogic.Experience;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.GameData.Enums;
@@ -76,6 +77,7 @@ public partial class Monster
         var chance = LootDropChance;
         var count = SphRng.Rng.Next (1, MaxLootItems + 1);
         var ratity = LootRatity.DEFAULT_MOB;
+        CultRules.AdjustDrop (this, killer, ref chance, ref count, ref ratity);
 
         if (count <= 0 || SphRng.Rng.NextDouble () >= chance)
         {
