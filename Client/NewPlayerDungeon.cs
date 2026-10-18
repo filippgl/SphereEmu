@@ -111,6 +111,12 @@ public static class NewPlayerDungeon
     private static readonly Dictionary<ushort, DateTime> lastExitAt = [];
 
     private const double ExitCooldownSeconds = 10;
+
+    /// <summary>
+    /// When the client's own position update last put it inside the maze; once it has, the
+    /// teleport has landed and the retries stop, so a later /tp or exit is left alone
+    /// </summary>
+    private static readonly Dictionary<ushort, DateTime> lastInsideReportAt = [];
     private static ushort labyrinthEntityId;
     private static ushort starterSwordEntityId;
     private static Monster? dungeonMob;
@@ -191,7 +197,8 @@ public static class NewPlayerDungeon
                     return;
                 }
 
-                if (lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt) && exitedAt > startedAt)
+                if (lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt) && exitedAt > startedAt
+                    || lastInsideReportAt.TryGetValue (character.ClientIndex, out var insideAt) && insideAt > startedAt)
                 {
                     return;
                 }
@@ -430,6 +437,12 @@ public static class NewPlayerDungeon
         if (client.CurrentCharacter is not { } character)
         {
             return;
+        }
+
+        // Called on the client's position updates, so this is where the client confirms the teleport
+        if (IsInside (character))
+        {
+            lastInsideReportAt[character.ClientIndex] = DateTime.UtcNow;
         }
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
