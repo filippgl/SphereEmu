@@ -25,10 +25,19 @@ public partial class ConsoleCommandParser
         var diag = tokens.Length > 2 && tokens[2] == "diag";
         var bench = tokens.Length > 2 && tokens[2] == "bench";
 
+        // "at x y z" in /pos terms checks a place the client cannot reach, such as a dungeon
         Vector3 center;
-        if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out center))
+        var at = Array.IndexOf (tokens, "at");
+        if (at >= 0 && tokens.Length >= at + 4
+                    && float.TryParse (tokens[at + 1], NumberStyles.Float, CultureInfo.InvariantCulture, out var ax)
+                    && float.TryParse (tokens[at + 2], NumberStyles.Float, CultureInfo.InvariantCulture, out var ay)
+                    && float.TryParse (tokens[at + 3], NumberStyles.Float, CultureInfo.InvariantCulture, out var az))
         {
-            SendFeedback ("/navcheck needs a connected client with a position.");
+            center = new Vector3 (ax, -ay, -az);
+        }
+        else if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out center))
+        {
+            SendFeedback ("/navcheck needs a connected client with a position, or at x y z.");
             return;
         }
 
