@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using SphServer.Server.GameplayLogic.Combat;
+using SphServer.Server.GameplayLogic.Cult;
 using SphServer.Server.GameplayLogic.Experience;
 using SphServer.Shared.Logger;
 
@@ -16,7 +17,8 @@ public static class BalanceConfig
     private static readonly (string Name, Type Type)[] KnownConfigs =
     [
         ("combat", typeof (CombatBalance)),
-        ("experience", typeof (ExperienceBalance))
+        ("experience", typeof (ExperienceBalance)),
+        ("cult", typeof (CultBalance))
     ];
 
     private static readonly ConcurrentDictionary<(string Name, Type Type), object> Loaded = new ();
