@@ -177,6 +177,12 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
             ? (BelongingSlot) targetSlotId
             : BelongingSlot.Unknown;
 
+        if (item.DroppedOnGroundBy is not null)
+        {
+            PickUpFromGround (client, clientConnection, item, targetSlot);
+            return;
+        }
+
         // Requirements gate wearing, not carrying: anything may sit in a cell.
         if (targetSlot is BelongingSlot.Unknown || !item.IsValidForSlot (targetSlot) ||
             (!ItemDbEntry.IsInventorySlot (targetSlot) && !character.CanUseItem (item)))
@@ -229,6 +235,47 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
 
         // Recalc writes worn look and item stats, so a save before it would miss them
         clientConnection.SaveSelectedCharacter ();
+    }
+
+    /// <summary>
+    /// A dropped item into the picker's inventory: the wanted cell if it is a free inventory cell,
+    /// otherwise the first free one. The reply is the live sack pickup without the sack: the item
+    /// takes the player as parent and the player's cell gets the item
+    /// </summary>
+    public static bool PickUpFromGround (SphereClient client, ClientConnection clientConnection, ItemDbEntry item,
+        BelongingSlot? wanted = null)
+    {
+        var localId = clientConnection.LocalId;
+        if (client.CurrentCharacter is not { } character)
+        {
+            return false;
+        }
+
+        var slot = wanted is { } cell && ItemDbEntry.IsInventorySlot (cell) && character.IsItemSlotEmpty (cell)
+            ? cell
+            : character.FindEmptyInventorySlot ();
+        if (slot is null)
+        {
+            SphLogger.Info ($"Pickup off the ground: inventory full. Client ID: {localId:X4}");
+            return false;
+        }
+
+        character.Items[slot.Value] = item.Id;
+        clientConnection.SaveSelectedCharacter ();
+
+        clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodePutInto (item, ByteSwap (localId)));
+        if (ItemSlotReserve.Build (localId, slot.Value, item.Id, item.ItemCount) is { } reserve)
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (reserve);
+        }
+
+        item.DroppedOnGroundBy = null;
+        DbConnection.Items.Update (item);
+        GroundItem.Find (item.Id)?.PickedUp (client);
+
+        SphLogger.Info ($"Picked up {item.Localization.GetValueOrDefault (Locale.Russian, "?")} [{item.Id:X4}] " +
+                        $"off the ground into {Enum.GetName (slot.Value)}. Client ID: {localId:X4}");
+        return true;
     }
 
     /// <summary>

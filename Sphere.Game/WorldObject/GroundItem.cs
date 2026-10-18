@@ -102,6 +102,7 @@ public partial class GroundItem : WorldObject
     {
         _gone = true;
         BroadcastDespawnToVisibleClients ();
+        StopVisibility ();
         RemoveFromWorldRegistry ();
         QueueFree ();
     }
