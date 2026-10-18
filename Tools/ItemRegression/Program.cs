@@ -164,7 +164,8 @@ using (var database = new LiteDB.LiteDatabase (memory))
     Check (stock.ItemCount == 1 && stock.ParentContainerId == 2837, "Purchase must preserve vendor stock");
     Check (bought.Id != stock.Id, "Purchase must allocate a distinct item id");
 }
-Console.WriteLine ($"PASS: {checks} checks, inventory, ground items, both mantra types, sack spawn");
+GameplayChecks.Run (Check);
+Console.WriteLine ($"PASS: {checks} checks, items, bank balances and stack merges");
 }
 catch (Exception error)
 {
