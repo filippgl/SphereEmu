@@ -44,7 +44,9 @@ public static class NewPlayerDungeon
     private const int StartingMoney = 10;
     private const double TeleportDelaySeconds = 1;
     private const double WorldLoadPollSeconds = 0.25;
-    private const double WorldLoadTimeoutSeconds = 120;
+    private const double FirstTeleportMaxWaitSeconds = 10;
+    private const double TeleportRetrySeconds = 5;
+    private const int TeleportRetryCount = 24;
     private const double LoadDelaySeconds = 0.5;
 
     /// <summary>
@@ -154,29 +156,57 @@ public static class NewPlayerDungeon
     {
         try
         {
-            // A cold client can sit on the loading screen for seconds after entry, and a teleport
-            // sent then is lost, leaving the newcomer at the regular spawn
-            for (var waited = 0.0; !client.WorldLoaded && waited < WorldLoadTimeoutSeconds; waited += WorldLoadPollSeconds)
+            // A teleport that lands during the loading screen is dropped, and how long that screen
+            // lasts varies (seconds on a warm client, half a minute in a VM; the world-loaded frame
+            // does not always come). So the teleport is sent early, re-sent once the client reports
+            // that frame, and re-sent while the client's own position updates still put it outside
+            for (var waited = 0.0; !client.WorldLoaded && waited < FirstTeleportMaxWaitSeconds; waited += WorldLoadPollSeconds)
             {
-                await client.ToSignal (client.GetTree ().CreateTimer (WorldLoadPollSeconds), SceneTreeTimer.SignalName.Timeout);
-                if (!GodotObject.IsInstanceValid (client))
+                if (!await Delay (client, WorldLoadPollSeconds))
                 {
                     return;
                 }
             }
 
-            await client.ToSignal (client.GetTree ().CreateTimer (TeleportDelaySeconds), SceneTreeTimer.SignalName.Timeout);
-            if (!GodotObject.IsInstanceValid (client))
+            if (!await Delay (client, TeleportDelaySeconds))
             {
                 return;
             }
 
             Enter (client, replayCapturedObjects: true);
+            var sawWorldLoaded = client.WorldLoaded;
+            for (var attempt = 1; attempt <= TeleportRetryCount; attempt++)
+            {
+                if (!await Delay (client, TeleportRetrySeconds) || client.CurrentCharacter is not { } character)
+                {
+                    return;
+                }
+
+                var worldJustLoaded = client.WorldLoaded && !sawWorldLoaded;
+                sawWorldLoaded = client.WorldLoaded;
+                if (IsInside (character) && !worldJustLoaded)
+                {
+                    continue;
+                }
+
+                SphLogger.Info ($"New player dungeon: re-sending the teleport (attempt {attempt}) for {character.Name}. " +
+                                $"Client ID: {character.ClientIndex:X4}");
+                Enter (client, replayCapturedObjects: true);
+            }
         }
         catch (Exception ex)
         {
             SphLogger.Error ("New player dungeon start failed", ex);
         }
+    }
+
+    /// <summary>
+    /// False once the client is gone
+    /// </summary>
+    private static async global::System.Threading.Tasks.Task<bool> Delay (SphereClient client, double seconds)
+    {
+        await client.ToSignal (client.GetTree ().CreateTimer (seconds), SceneTreeTimer.SignalName.Timeout);
+        return GodotObject.IsInstanceValid (client);
     }
 
     /// <summary>
