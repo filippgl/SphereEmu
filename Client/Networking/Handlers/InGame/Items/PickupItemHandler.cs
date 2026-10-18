@@ -57,6 +57,12 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
             return;
         }
 
+        if (item?.ParentBackpackId is not null)
+        {
+            Backpack.TakeOut (clientConnection, item, null);
+            return;
+        }
+
         var container = item?.ParentContainerId is { } containerId
             ? DbConnection.ItemContainers.FindById (containerId)
             : null;
@@ -149,6 +155,12 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
         {
             clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
             PickUpFromGround (client, clientConnection, item, targetSlot);
+            return;
+        }
+
+        if (item.ParentBackpackId is not null)
+        {
+            Backpack.TakeOut (clientConnection, item, targetSlot);
             return;
         }
 

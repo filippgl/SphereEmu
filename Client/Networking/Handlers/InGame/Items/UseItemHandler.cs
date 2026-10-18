@@ -66,6 +66,14 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection, 
                 return;
             }
 
+            if (item.ParentBackpackId is not null)
+            {
+                Log (itemId, name, Backpack.TakeOut (clientConnection, item, null)
+                    ? "taken out of the backpack"
+                    : "left in the backpack");
+                return;
+            }
+
             Log (itemId, name, "not carried");
             return;
         }
@@ -84,6 +92,15 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection, 
         }
 
         var from = character.Items.First (x => x.Value == item.Id).Key;
+
+        // The client opens the worn backpack itself and then reports the use, so the bag stays worn
+        if (from == BelongingSlot.Backpack && Backpack.IsBackpack (item))
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (Backpack.BuildCellsPacket (item));
+            Log (itemId, name, $"backpack opened, {item.BackpackContents.Count} item(s)");
+            return;
+        }
+
         var wearing = !ItemDbEntry.IsInventorySlot (from);
         var to = wearing ? character.FindEmptyInventorySlot () : WearSlotFor (character, item);
         if (to is null)
@@ -119,6 +136,11 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection, 
         if (claimed is not null)
         {
             clientConnection.MaybeScheduleNetworkPacketSend (claimed);
+        }
+
+        if (to == BelongingSlot.Backpack && Backpack.IsBackpack (item))
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (Backpack.BuildCellsPacket (item));
         }
 
         if (character.RecalcCurrentStats ())
