@@ -58,10 +58,14 @@ public partial class ConsoleCommandParser
             DiagnoseNearestSpawner (center, spawners);
         }
 
+        var deadline = Time.GetTicksMsec () + 120_000UL;
         var rng = new RandomNumberGenerator ();
         var checkedSpawners = 0;
         var reasons = new Dictionary<NavPathFailReason, int> ();
         int rawPaths = 0, rawBad = 0, acceptedBad = 0, accepted = 0, unsampled = 0;
+        double guardedMs = 0, guardedMaxMs = 0, rawMs = 0, rawMaxMs = 0;
+        int guardedCalls = 0, rawCalls = 0;
+        var watch = new global::System.Diagnostics.Stopwatch ();
 
         foreach (var spawner in spawners)
         {
@@ -77,13 +81,23 @@ public partial class ConsoleCommandParser
                     continue;
                 }
 
+                watch.Restart ();
                 var result = NavPathQuery.FindPath (spawner, new NavPathRequest (start, goal, leashCenter, leash));
+                var spent = watch.Elapsed.TotalMilliseconds;
+                guardedMs += spent;
+                guardedMaxMs = Math.Max (guardedMaxMs, spent);
+                guardedCalls++;
                 reasons[result.Reason] = reasons.GetValueOrDefault (result.Reason) + 1;
 
                 if (TerrainNavMeshRuntime.IsPointOnNavMesh (start, out var rawStart) &&
                     TerrainNavMeshRuntime.IsPointOnNavMesh (goal, out var rawGoal))
                 {
+                    watch.Restart ();
                     var raw = TerrainNavMeshRuntime.FindPath (rawStart, rawGoal);
+                    var rawSpent = watch.Elapsed.TotalMilliseconds;
+                    rawMs += rawSpent;
+                    rawMaxMs = Math.Max (rawMaxMs, rawSpent);
+                    rawCalls++;
                     if (raw.Length > 0)
                     {
                         rawPaths++;
@@ -100,12 +114,30 @@ public partial class ConsoleCommandParser
                     if (IsObviouslyBadPath (result.Waypoints.ToArray (), leashCenter, leash))
                     {
                         acceptedBad++;
+                        SendFeedback ($"/navcheck accepted absurd: {spawner.Name} r={leash} {start} -> {goal}: " +
+                                      DescribePath (result.Waypoints.ToArray (), leashCenter));
                     }
                 }
+
+                // A raw query can walk the whole joined map; one sample per frame keeps the
+                // server responsive
+                await SphereServer.ServerNode.ToSignal (tree, SceneTree.SignalName.ProcessFrame);
+                if (Time.GetTicksMsec () > deadline)
+                {
+                    break;
+                }
+            }
+
+            if (Time.GetTicksMsec () > deadline)
+            {
+                SendFeedback ("/navcheck: stopped at the 120s budget, partial numbers below");
+                break;
             }
         }
 
-        var reasonText = string.Join (", ", reasons.Select (x => $"{x.Key}={x.Value}"));
+        var reasonText = string.Join (", ", reasons.Select (x => $"{x.Key}={x.Value}")) +
+                         $"; guarded avg {(guardedCalls > 0 ? guardedMs / guardedCalls : 0):F1}ms max {guardedMaxMs:F0}ms, " +
+                         $"raw avg {(rawCalls > 0 ? rawMs / rawCalls : 0):F1}ms max {rawMaxMs:F0}ms";
         SendFeedback ($"/navcheck: {checkedSpawners} spawner(s) within {radius:F0}m; raw paths {rawPaths}, " +
                       $"raw absurd {rawBad}; unsampled {unsampled}; accepted {accepted}, accepted absurd {acceptedBad}; {reasonText}");
     }
@@ -146,6 +178,20 @@ public partial class ConsoleCommandParser
     }
 
     private static float Horizontal (Vector3 a, Vector3 b) => new Vector2 (a.X - b.X, a.Z - b.Z).Length ();
+
+    private static string DescribePath (Vector3[] path, Vector3 leashCenter)
+    {
+        var minY = path.Min (x => x.Y);
+        var maxY = path.Max (x => x.Y);
+        var farthest = path.Max (x => Horizontal (x, leashCenter));
+        var length = 0f;
+        for (var i = 1; i < path.Length; i++)
+        {
+            length += path[i - 1].DistanceTo (path[i]);
+        }
+
+        return $"{path.Length} pts, Y {minY:F1}..{maxY:F1}, farthest {farthest:F0}m from centre, length {length:F0}m";
+    }
 
     private static void CollectSpawners (Node node, List<MonsterSpawner> spawners)
     {
