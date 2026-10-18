@@ -161,7 +161,8 @@ public partial class WorldObject : Node3D
                 ID = WorldObjectIndex.New ();
             }
             // A client reserves its id at connect, so its own reservation is not a conflict
-            else if (!WorldObjectIndex.TryReserve (ID) && !ReferenceEquals (ActiveClients.Get (ID), this))
+            else if (!HoldsReservedId && !WorldObjectIndex.TryReserve (ID) &&
+                     !ReferenceEquals (ActiveClients.Get (ID), this))
             {
                 if (IsBakedDuplicateOf (ActiveWorldObjects.Get (ID)))
                 {
@@ -191,6 +192,12 @@ public partial class WorldObject : Node3D
             CallDeferred (nameof (RefreshModelVisualDeferred));
         }
     }
+
+    /// <summary>
+    /// The spawner took ID from <see cref="WorldObjectIndex" /> itself and other records already
+    /// name it, so finding it taken is not a conflict
+    /// </summary>
+    protected virtual bool HoldsReservedId => false;
 
     /// <summary>
     /// Chunk bakes hold a few copies of one placement under one id about a metre apart, so the
