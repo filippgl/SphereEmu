@@ -80,6 +80,12 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
     {
         SphLogger.Info ($"CLI: Pickup to free slot frame {Convert.ToHexString (frame)}. Client ID: {localId:X4}");
 
+        if (NewPlayerDungeon.StarterSwordIdFor (client) is { } swordId && PayloadContainsId (frame, swordId))
+        {
+            NewPlayerDungeon.TakeStarterSword (client);
+            return;
+        }
+
         if (FindSackItemInPayload (frame) is not { } found)
         {
             SphLogger.Warning ($"Pickup to free slot: no sack item id in the frame. Client ID: {localId:X4}");
@@ -99,6 +105,21 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
             $"(id at bit {bitOffset}) into {Enum.GetName (slot)}. Client ID: {localId:X4}");
         TakeOutOfLootBag (item);
         clientConnection.SaveSelectedCharacter ();
+    }
+
+    private static bool PayloadContainsId (byte[] frame, ushort id)
+    {
+        for (var bit = PickupPayloadBit; bit + 16 <= frame.Length * 8; bit++)
+        {
+            var stream = new BitStream (frame);
+            stream.SeekBitOffset (bit);
+            if (stream.ReadUInt16 (16) == id)
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private static (ItemDbEntry Item, int BitOffset)? FindSackItemInPayload (byte[] frame)
@@ -133,6 +154,15 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
         var clientItemID = (clientItemID_3 << 15) + (clientItemID_2 << 7) + clientItemID_1;
 
         var globalItemId = (ushort) clientItemID;
+
+        // No 0x2E reply: the pedestal object is despawned and a real sword is declared instead
+        if (NewPlayerDungeon.StarterSwordIdFor (client) == globalItemId)
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
+            NewPlayerDungeon.TakeStarterSword (client);
+            return;
+        }
+
         var item = DbConnection.Items.Find (x => x.Id == globalItemId).FirstOrDefault ();
 
         if (item is null)
