@@ -68,6 +68,9 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
         item.Y = position.Y;
         item.Z = position.Z;
         DbConnection.Items.Update (item);
+
+        // The dropper already holds the item, so it is moved out rather than spawned again
+        clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodeLeaveContainer (item));
         GroundItem.Spawn (item, character.Id, position);
 
         var name = item.Localization.GetValueOrDefault (Locale.Russian, item.GameObjectType.ToString ());

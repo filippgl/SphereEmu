@@ -112,6 +112,32 @@ public static class ItemRecordEncoder
     }
 
     /// <summary>
+    /// Lead after the 0x0A record header in channel-4 message frames (the live sack lists)
+    /// </summary>
+    private const uint ContainerMessagesLead = 0x13;
+
+    /// <summary>
+    /// Item ContMan type 1 (pw_fb02 and the other item scripts): contain state 1, visible in the
+    /// world, no parent. A second FULL_SPAWN for an item the client already holds is ignored, so
+    /// a drop has to reach the existing item this way
+    /// </summary>
+    public static byte[] EncodeLeaveContainer (ItemDbEntry item)
+    {
+        var stream = GetWriteBitStream ();
+        stream.WriteUInt16 ((ushort) item.Id, 16);
+        stream.WriteByte (0, 2);
+        stream.WriteUInt16 ((ushort) ((int) item.WireObjectType & 0x3FF), 10);
+        stream.WriteByte (0, 1);
+        stream.WriteByte (0x0A, 8);
+        stream.WriteUInt16 ((ushort) ContainerMessagesLead, 16);
+        stream.WriteByte ((byte) (ContainerMessagesLead >> 16), 4);
+        stream.WriteByte ((byte) FollowOnRecord, 7);
+        stream.WriteByte (1, 4);
+        stream.WriteByte (0, 8);
+        return Packet.ToByteArray (stream.GetStreamData (), 3);
+    }
+
+    /// <summary>
     /// No game object id: object type alone, so every item of a type shares one icon
     /// </summary>
     public static byte[] EncodeWithoutGameId (ushort entityId, int objectType, ushort containerObjectId,
