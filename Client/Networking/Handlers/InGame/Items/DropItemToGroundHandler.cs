@@ -69,8 +69,18 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
         item.Z = position.Z;
         DbConnection.Items.Update (item);
 
-        // The dropper already holds the item, so it is moved out rather than spawned again
-        clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodeLeaveContainer (item));
+        // The bag window draws the player's slot array, so the cells are cleared as UseItem does;
+        // the item itself is already the client's, so it is moved rather than spawned again
+        foreach (var slot in slots)
+        {
+            if (ItemSlotReserve.Build (localId, slot, ItemSlotReserve.NoItem) is { } clear)
+            {
+                clientConnection.MaybeScheduleNetworkPacketSend (clear);
+            }
+        }
+
+        clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodeDropToGround (item,
+            position.X, -position.Y, -position.Z, (byte) GroundItem.CreateRandomSpawnAngle ()));
         GroundItem.Spawn (item, character.Id, position);
 
         var name = item.Localization.GetValueOrDefault (Locale.Russian, item.GameObjectType.ToString ());

@@ -73,9 +73,12 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
     private const int PickupPayloadBit = 131;
 
     /// <summary>
-    /// Double-click in an open sack. The item id offset in this frame is not pinned down by a
-    /// capture yet, so the payload is searched for an id that is in a sack, and the frame is
-    /// logged to confirm it
+    /// Both live pickups in itemPickup.txt carry the item id here, as the drop frame does
+    /// </summary>
+    private const int PickupItemIdBit = 141;
+
+    /// <summary>
+    /// Double-click in an open sack: the item goes to the first free cell
     /// </summary>
     public async Task HandlePickupToNextAvailableEmptySlot (byte[] frame, double delta)
     {
@@ -87,25 +90,43 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
             return;
         }
 
-        if (FindSackItemInPayload (frame) is not { } found)
+        var stream = new BitStream (frame);
+        stream.SeekBitOffset (PickupItemIdBit);
+        var itemId = (int) stream.ReadUInt16 (16);
+        var item = DbConnection.Items.FindById (itemId);
+        var container = item?.ParentContainerId is { } containerId
+            ? DbConnection.ItemContainers.FindById (containerId)
+            : null;
+        var sackSlot = container?.Contents.FirstOrDefault (x => x.Value == itemId);
+        if (item is null || container is null || sackSlot?.Value != itemId)
         {
-            SphLogger.Warning ($"Pickup to free slot: no sack item id in the frame. Client ID: {localId:X4}");
+            SphLogger.Warning ($"Pickup to free slot: item {itemId:X4} is not in a sack. Client ID: {localId:X4}");
             return;
         }
 
-        var (item, bitOffset) = found;
-
-        if (client.PutItemInInventoryAndDeclare (item) is not { } slot)
+        var character = client.CurrentCharacter!;
+        if (character.FindEmptyInventorySlot () is not { } slot)
         {
             SphLogger.Info ($"Pickup to free slot: inventory full. Client ID: {localId:X4}");
             return;
         }
 
+        character.Items[slot] = item.Id;
+        clientConnection.SaveSelectedCharacter ();
+
+        // The live reply (itemPickup.txt): the sack clears its cell, the item takes the player as
+        // parent, the player's cell gets the item
+        clientConnection.MaybeScheduleNetworkPacketSend (container.BuildClearSlotPacket (sackSlot.Value.Key));
+        clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodePutInto (item, ByteSwap (localId)));
+        if (ItemSlotReserve.Build (localId, slot, item.Id, item.ItemCount) is { } reserve)
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (reserve);
+        }
+
         SphLogger.Info (
             $"CLI: Picked up {item.Localization.GetValueOrDefault (Locale.Russian, "?")} [{item.Id:X4}] " +
-            $"(id at bit {bitOffset}) into {Enum.GetName (slot)}. Client ID: {localId:X4}");
+            $"from sack {container.Id:X4} cell {sackSlot.Value.Key} into {Enum.GetName (slot)}. Client ID: {localId:X4}");
         TakeOutOfLootBag (item);
-        clientConnection.SaveSelectedCharacter ();
     }
 
     private static bool PayloadContainsId (byte[] frame, ushort id)
@@ -121,30 +142,6 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
         }
 
         return false;
-    }
-
-    private static (ItemDbEntry Item, int BitOffset)? FindSackItemInPayload (byte[] frame)
-    {
-        for (var bit = PickupPayloadBit; bit + 16 <= frame.Length * 8; bit++)
-        {
-            var stream = new BitStream (frame);
-            stream.SeekBitOffset (bit);
-            var candidate = (int) stream.ReadUInt16 (16);
-            if (candidate < WorldObjectIndex.FirstItemId)
-            {
-                continue;
-            }
-
-            var item = DbConnection.Items.FindById (candidate);
-            if (item?.ParentContainerId is { } containerId &&
-                DbConnection.ItemContainers.FindById (containerId) is { } container &&
-                container.Contents.ContainsValue (candidate))
-            {
-                return (item, bit);
-            }
-        }
-
-        return null;
     }
 
     public async Task HandlePickupToTargetSlot (byte[] frame, double delta)

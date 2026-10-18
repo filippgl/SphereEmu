@@ -248,6 +248,21 @@ public class ItemContainerDbEntry
 
     public byte[]? GetListPacket () => BuildItemListPacket (GetItems ());
 
+    /// <summary>
+    /// The sack half of the live pickup reply: ContMan cmd 2 with only a slot byte empties it
+    /// </summary>
+    public byte[] BuildClearSlotPacket (int slot)
+    {
+        var stream = SphServer.Shared.BitStream.SphBitStream.GetWriteBitStream ();
+        stream.WriteUInt16 ((ushort) Id, 16);
+        stream.WriteByte (0, 2);
+        stream.WriteUInt16 ((ushort) ObjectType.Sack_Mob_Loot, 12);
+        WriteMessageHeader (stream, SlotMessage, 1);
+        stream.WriteByte ((byte) slot, 8);
+        stream.WriteByte (0, 7);
+        return Packet.ToByteArray (stream.GetStreamData (), 3);
+    }
+
     public List<byte[]> GetItemRecordPackets () =>
         GetItems ().Select (x => ItemRecordEncoder.EncodeInLootBag (x, (ushort) Id)).ToList ();
 

@@ -112,28 +112,58 @@ public static class ItemRecordEncoder
     }
 
     /// <summary>
-    /// Lead after the 0x0A record header in channel-4 message frames (the live sack lists)
+    /// Region wires are region + 1: 2 places an object, 4 is ContMan
     /// </summary>
-    private const uint ContainerMessagesLead = 0x13;
+    private const byte PlaceRegionWire = 3;
+
+    private const byte ContManRegionWire = 5;
 
     /// <summary>
-    /// Item ContMan type 1 (pw_fb02 and the other item scripts): contain state 1, visible in the
-    /// world, no parent. A second FULL_SPAWN for an item the client already holds is ignored, so
-    /// a drop has to reach the existing item this way
+    /// Mirror of the live pickup reply (itemPickup.txt), where the item gets region 2 (x, y, z,
+    /// u8 angle, u2 contain state 2) and ContMan cmd 0 with its new parent: here region 2 puts it
+    /// at the drop point with contain state 1, and item ContMan cmd 1 (pw_fb02 and the other item
+    /// scripts) shows it in the world with no parent
     /// </summary>
-    public static byte[] EncodeLeaveContainer (ItemDbEntry item)
+    /// <summary>
+    /// The item half of the live pickup reply: region 2 at the contained position with contain
+    /// state 2, then ContMan cmd 0 naming the new parent
+    /// </summary>
+    public static byte[] EncodePutInto (ItemDbEntry item, ushort parentWireId)
     {
         var stream = GetWriteBitStream ();
         stream.WriteUInt16 ((ushort) item.Id, 16);
         stream.WriteByte (0, 2);
-        stream.WriteUInt16 ((ushort) ((int) item.WireObjectType & 0x3FF), 10);
-        stream.WriteByte (0, 1);
-        stream.WriteByte (0x0A, 8);
-        stream.WriteUInt16 ((ushort) ContainerMessagesLead, 16);
-        stream.WriteByte ((byte) (ContainerMessagesLead >> 16), 4);
-        stream.WriteByte ((byte) FollowOnRecord, 7);
+        stream.WriteUInt16 ((ushort) ((int) item.WireObjectType & 0xFFF), 12);
+        stream.WriteByte (PlaceRegionWire, 7);
+        WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (ContainedX));
+        WriteUInt32Full (stream, 0);
+        WriteUInt32Full (stream, 0);
+        stream.WriteByte (0, 8);
+        stream.WriteByte (2, 2);
+        stream.WriteByte (ContManRegionWire, 7);
+        stream.WriteByte ((byte) PutHereMessage, 4);
+        stream.WriteByte (3, 8);
+        stream.WriteUInt32 (parentWireId, 24);
+        stream.WriteByte (0, 7);
+        return Packet.ToByteArray (stream.GetStreamData (), 3);
+    }
+
+    public static byte[] EncodeDropToGround (ItemDbEntry item, float x, float y, float z, byte angle)
+    {
+        var stream = GetWriteBitStream ();
+        stream.WriteUInt16 ((ushort) item.Id, 16);
+        stream.WriteByte (0, 2);
+        stream.WriteUInt16 ((ushort) ((int) item.WireObjectType & 0xFFF), 12);
+        stream.WriteByte (PlaceRegionWire, 7);
+        WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (x));
+        WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (y));
+        WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (z));
+        stream.WriteByte (angle, 8);
+        stream.WriteByte (1, 2);
+        stream.WriteByte (ContManRegionWire, 7);
         stream.WriteByte (1, 4);
         stream.WriteByte (0, 8);
+        stream.WriteByte (0, 7);
         return Packet.ToByteArray (stream.GetStreamData (), 3);
     }
 
