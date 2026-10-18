@@ -1,6 +1,7 @@
 using System;
 using Godot;
 using SphServer.Helpers;
+using SphServer.Server.Config;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
@@ -25,14 +26,26 @@ public static class NewPlayerDungeon
     private const double TeleportDelaySeconds = 3;
     private const double LoadDelaySeconds = 0.5;
 
+    /// <summary>
+    /// The client hangs on the loading screen when the session starts inside the dungeon, so the
+    /// character enters at the regular spawn and only the teleport moves it
+    /// </summary>
     public static void PlaceCharacter (CharacterDbEntry character)
     {
-        // DB keeps Y and Z negated relative to world coords
+        character.X = ServerConfig.AppConfig.Spawn_X;
+        character.Y = -ServerConfig.AppConfig.Spawn_Y;
+        character.Z = -ServerConfig.AppConfig.Spawn_Z;
+        character.Angle = ServerConfig.AppConfig.Spawn_Angle;
+        character.Money = StartingMoney;
+    }
+
+    private static void MoveToDungeon (CharacterDbEntry character)
+    {
+        // DB keeps Y and Z negated relative to world coords; TeleportCoords.y is already flipped
         character.X = TeleportCoords.x;
         character.Y = TeleportCoords.y;
         character.Z = -TeleportCoords.z;
         character.Angle = TeleportCoords.turn;
-        character.Money = StartingMoney;
     }
 
     public static async void Start (SphereClient client)
@@ -47,6 +60,8 @@ public static class NewPlayerDungeon
 
             client.MaybeQueueNetworkPacketSend (
                 new CharacterDbEntrySerializer (character).GetNewPlayerDungeonTeleportAndUpdateStatsByteArray (TeleportCoords));
+            MoveToDungeon (character);
+            client.SaveCharacter ();
 
             await client.ToSignal (client.GetTree ().CreateTimer (LoadDelaySeconds), SceneTreeTimer.SignalName.Timeout);
             if (!GodotObject.IsInstanceValid (client))
