@@ -172,6 +172,21 @@ public class ItemDbEntry
         return item;
     }
 
+    /// <summary>
+    /// The part of a stack a split drag moves becomes an item of its own; this one keeps the rest
+    /// </summary>
+    public ItemDbEntry SplitOff (int count)
+    {
+        var part = Clone (this, insertIntoItemCollection: false);
+        part.Id = WorldObjectIndex.NewItem ();
+        part.ItemCount = count;
+        DbConnection.Items.Insert (part.Id, part);
+
+        ItemCount -= count;
+        DbConnection.Items.Update (this);
+        return part;
+    }
+
     public bool IsGuildMembershipEmblem =>
         GameObjectType is GameObjectType.Guild
         && GuildCatalog.TryParseMembershipGameId (GameId, out _, out _);
