@@ -23,6 +23,7 @@ public partial class ConsoleCommandParser
             CultureInfo.InvariantCulture, out var r) ? r : 200f;
         var samples = tokens.Length > 1 && int.TryParse (tokens[1], out var s) ? s : 40;
         var diag = tokens.Length > 2 && tokens[2] == "diag";
+        var bench = tokens.Length > 2 && tokens[2] == "bench";
 
         Vector3 center;
         if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out center))
@@ -31,10 +32,10 @@ public partial class ConsoleCommandParser
             return;
         }
 
-        Callable.From (() => RunNavCheck (center, radius, samples, diag)).CallDeferred ();
+        Callable.From (() => RunNavCheck (center, radius, samples, diag, bench)).CallDeferred ();
     }
 
-    private async void RunNavCheck (Vector3 center, float radius, int samples, bool diag)
+    private async void RunNavCheck (Vector3 center, float radius, int samples, bool diag, bool bench = false)
     {
         var spawners = new List<MonsterSpawner> ();
         CollectSpawners (SphereServer.ServerNode, spawners);
@@ -56,6 +57,12 @@ public partial class ConsoleCommandParser
         if (diag)
         {
             DiagnoseNearestSpawner (center, spawners);
+        }
+
+        if (bench)
+        {
+            BenchFindPathSteps (spawners);
+            return;
         }
 
         var deadline = Time.GetTicksMsec () + 120_000UL;
@@ -407,5 +414,55 @@ public partial class ConsoleCommandParser
         {
             CollectMonsters (child, monsters);
         }
+    }
+
+    private const int NavBenchRuns = 20;
+
+    // Times each step of the guarded FindPath on one real pair, to see where a mob's repath goes
+    private void BenchFindPathSteps (List<MonsterSpawner> spawners)
+    {
+        var rng = new RandomNumberGenerator ();
+        foreach (var spawner in spawners)
+        {
+            var c = spawner.LeashCenterWorld;
+            var leash = spawner.LeashRadiusMeters;
+            if (!TrySampleNavPoint (rng, c, leash, out var start) || !TrySampleNavPoint (rng, c, leash, out var goal))
+            {
+                continue;
+            }
+
+            var watch = new global::System.Diagnostics.Stopwatch ();
+            double Time (Action step)
+            {
+                watch.Restart ();
+                for (var i = 0; i < NavBenchRuns; i++)
+                {
+                    step ();
+                }
+
+                return watch.Elapsed.TotalMilliseconds / NavBenchRuns;
+            }
+
+            TerrainNavMeshRuntime.IsPointOnNavMesh (start, out var a);
+            TerrainNavMeshRuntime.IsPointOnNavMesh (goal, out var b);
+            var request = new NavPathRequest (start, goal, c, leash);
+            var files = Time (() => TerrainNavMeshRuntime.HasAnyTileFiles ());
+            var ensure = Time (() => TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, c, leash + 8f));
+            var sync = Time (() => TerrainNavMeshRuntime.TrySyncImmediate ());
+            var snaps = Time (() =>
+            {
+                TerrainNavMeshRuntime.IsPointOnNavMesh (start, out _);
+                TerrainNavMeshRuntime.IsPointOnNavMesh (goal, out _);
+            });
+            var raw = Time (() => TerrainNavMeshRuntime.FindPath (a, b));
+            var full = Time (() => NavPathQuery.FindPath (spawner, request));
+            SendFeedback (string.Create (CultureInfo.InvariantCulture,
+                $"/navcheck bench ({NavBenchRuns} runs, ms each): files {files:F2}, ensureTiles {ensure:F2}, " +
+                $"sync {sync:F2}, 2 snaps {snaps:F2}, navFindPath {raw:F2}, guarded FindPath {full:F2}; " +
+                $"{spawner.Name} {Horizontal (start, goal):F0}m apart"));
+            return;
+        }
+
+        SendFeedback ("/navcheck bench: no spawner gave a sample pair");
     }
 }
