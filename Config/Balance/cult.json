@@ -14,6 +14,10 @@
     // null keeps the nearest city until the tower is located (stand there and run /cult here).
     "respawn": null,
 
+    // recovered (client turnskin.cfg SK01 = npc80, the crater dwarf): region 61 model_or_type for
+    // members. null until the wire value that selects the skin is confirmed (/cult skin trials).
+    "skin_model": null,
+
     // recovered (player memory): karma worked the other way round for members and changed drops.
     // invented: the numbers. Members read these through the mirrored tier (very bad acts as benign).
     "drop_chance_multiplier_per_karma": {

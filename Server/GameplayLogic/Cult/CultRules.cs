@@ -100,6 +100,37 @@ public static class CultRules
     /// <summary>
     /// The point set in game wins over cult.json, so a GM can place it without a redeploy
     /// </summary>
+    private static readonly Dictionary<int, uint> SpawnModelTrials = new ();
+
+    /// <summary>
+    /// region 61 model_or_type for this character, or null for the packed look; the client runs
+    /// NumToModel on it when it is not 101
+    /// </summary>
+    public static uint? SpawnModelOverride (CharacterDbEntry character)
+    {
+        if (SpawnModelTrials.TryGetValue (character.Id, out var trial))
+        {
+            return trial;
+        }
+
+        return IsMember (character) ? Config?.SkinModel : null;
+    }
+
+    /// <summary>
+    /// Null clears it; peers see the change on their next spawn of this character
+    /// </summary>
+    public static void SetSpawnModelTrial (CharacterDbEntry character, uint? model)
+    {
+        if (model is { } value)
+        {
+            SpawnModelTrials[character.Id] = value;
+        }
+        else
+        {
+            SpawnModelTrials.Remove (character.Id);
+        }
+    }
+
     public static WorldCoords? RespawnPoint
     {
         get

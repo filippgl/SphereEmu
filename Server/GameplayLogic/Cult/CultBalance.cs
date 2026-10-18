@@ -30,6 +30,12 @@ public class CultBalance : IValidatableBalanceConfig
     public double[]? Respawn { get; init; }
 
     /// <summary>
+    /// region 61 model_or_type for members (the crater dwarf skin); null keeps their own look
+    /// </summary>
+    [JsonPropertyName ("skin_model")]
+    public uint? SkinModel { get; init; }
+
+    /// <summary>
     /// Loot chance multiplier per karma tier, read through the mirrored tier for members
     /// </summary>
     [JsonPropertyName ("drop_chance_multiplier_per_karma")]
