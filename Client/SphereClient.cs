@@ -54,6 +54,7 @@ public partial class SphereClient : WorldObject
 	private StreamPeerTcp streamPeerTcp = null!;
 	// SceneTreeTimer is refcounted; a local dies before Timeout
 	private SceneTreeTimer? playerRespawnTimer;
+	private bool startNewPlayerDungeonOnEntry;
 
 	internal Area3D? BroadcastArea3D { get; private set; }
 
@@ -418,6 +419,12 @@ public partial class SphereClient : WorldObject
 		base._Ready ();
 		SendMoney ();
 		SendOwnWornGear ();
+
+		if (startNewPlayerDungeonOnEntry)
+		{
+			startNewPlayerDungeonOnEntry = false;
+			NewPlayerDungeon.Start (this);
+		}
 	}
 
 	/// <summary>
@@ -753,6 +760,28 @@ public partial class SphereClient : WorldObject
 
 	private void UpdateCharacterForDebugMode ()
 	{
+		if (CurrentCharacter is null)
+		{
+			SphLogger.Info ($"Skipping first entry setup (character is null). Client ID: {localId:X4}");
+			return;
+		}
+
+		if (CurrentCharacter.HasEnteredWorld)
+		{
+			SphLogger.Info ($"Skipping first entry setup (character already entered world). Client ID: {localId:X4}");
+			return;
+		}
+
+		CurrentCharacter.HasEnteredWorld = true;
+
+		if (ServerConfig.AppConfig.NewPlayerDungeon)
+		{
+			NewPlayerDungeon.PlaceCharacter (CurrentCharacter);
+			startNewPlayerDungeonOnEntry = true;
+			SphLogger.Info ($"First entry: placed in the new player dungeon. Client ID: {localId:X4}");
+			return;
+		}
+
 		// TODO: move to db entry
 		if (!ServerConfig.AppConfig.DebugMode)
 		{
@@ -760,19 +789,6 @@ public partial class SphereClient : WorldObject
 			return;
 		}
 
-		if (CurrentCharacter is null)
-		{
-			SphLogger.Info ($"Skipping debug mode update (character is null). Client ID: {localId:X4}");
-			return;
-		}
-
-		if (CurrentCharacter.HasEnteredWorld)
-		{
-			SphLogger.Info ($"Skipping debug mode update (character already entered world). Client ID: {localId:X4}");
-			return;
-		}
-
-		CurrentCharacter.HasEnteredWorld = true;
 		CurrentCharacter.X = ServerConfig.AppConfig.Spawn_X;
 		CurrentCharacter.Y = -ServerConfig.AppConfig.Spawn_Y;
 		CurrentCharacter.Z = -ServerConfig.AppConfig.Spawn_Z;
