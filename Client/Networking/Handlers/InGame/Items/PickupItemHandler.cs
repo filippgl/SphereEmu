@@ -198,15 +198,7 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
 
         clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.Encode (item, ByteSwap (localId)));
 
-        var oldContainer = item.ParentContainerId is null
-            ? null
-            : DbConnection.ItemContainers.FindById (item.ParentContainerId);
-
-        // TODO: check in next process in node instead of this
-        if (oldContainer?.RemoveItemByIdAndDestroyContainerIfEmpty (globalItemId) ?? false)
-        {
-            clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.DespawnEntity ((ushort) oldContainer.Id));
-        }
+        TakeOutOfLootBag (item);
 
         if (!ItemDbEntry.IsInventorySlot (targetSlot))
         {
@@ -218,5 +210,23 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
 
         // Recalc writes worn look and item stats, so a save before it would miss them
         clientConnection.SaveSelectedCharacter ();
+    }
+
+    /// <summary>
+    /// The emptied sack despawns for everyone who sees it, the picker included
+    /// </summary>
+    private static void TakeOutOfLootBag (ItemDbEntry item)
+    {
+        var container = item.ParentContainerId is null
+            ? null
+            : DbConnection.ItemContainers.FindById (item.ParentContainerId);
+        if (container is null)
+        {
+            return;
+        }
+
+        item.ParentContainerId = null;
+        DbConnection.Items.Update (item);
+        container.RemoveItemByIdAndDestroyContainerIfEmpty (item.Id);
     }
 }

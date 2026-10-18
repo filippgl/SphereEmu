@@ -1,0 +1,102 @@
+using Godot;
+using SphServer.Client;
+using SphServer.Shared.Db.DataModels;
+using SphServer.Shared.GameData.Enums;
+using SphServer.Shared.Logger;
+using SphServer.Shared.WorldState;
+
+namespace SphServer.Sphere.Game.WorldObject;
+
+/// <summary>
+/// Ground sack whose wire id is its container's DB id, so the open request names the container
+/// directly
+/// </summary>
+public partial class LootBag : WorldObject
+{
+    /// <summary>
+    /// Unclaimed loot goes away with its contents, as on live
+    /// </summary>
+    private const double LifetimeSeconds = 300;
+
+    public ItemContainerDbEntry Container { get; private set; } = null!;
+
+    private bool _despawned;
+
+    public static LootBag Spawn (ItemContainerDbEntry container, Vector3 godotPosition)
+    {
+        var bag = new LootBag
+        {
+            Container = container,
+            ID = (ushort) container.Id,
+            ObjectType = ObjectType.Sack_Mob_Loot,
+            Name = $"LootBag_{container.Id}",
+            Angle = CreateRandomSpawnAngle ()
+        };
+        bag.Position = godotPosition;
+
+        // _Ready reserves ID itself and reassigns it when already taken
+        WorldObjectIndex.Release (bag.ID);
+        SphServer.Server.SphereServer.ServerNode.CallDeferred (Node.MethodName.AddChild, bag);
+        return bag;
+    }
+
+    public static LootBag? Find (int containerId) => ActiveWorldObjects.Get ((ushort) containerId) as LootBag;
+
+    public override void _Ready ()
+    {
+        base._Ready ();
+        if (Engine.IsEditorHint ())
+        {
+            return;
+        }
+
+        GetTree ().CreateTimer (LifetimeSeconds).Timeout += Expire;
+        EnsureVisibilityArea ();
+    }
+
+    /// <summary>
+    /// The list frame does not carry the records, so both go out when the sack is opened
+    /// </summary>
+    public void SendContentsTo (SphereClient client)
+    {
+        foreach (var packet in Container.GetContentsPackets ())
+        {
+            client.MaybeQueueNetworkPacketSend (packet);
+        }
+    }
+
+    /// <summary>
+    /// Last item taken: everyone who sees the sack loses it, not only the picker
+    /// </summary>
+    public void DespawnEmpty ()
+    {
+        Despawn ();
+        ItemContainerDbEntry.Delete (Container, deleteItems: false);
+    }
+
+    private void Expire ()
+    {
+        if (_despawned)
+        {
+            return;
+        }
+
+        SphLogger.Info ($"Loot bag {ID:X4} expired with {Container.Contents.Count} item(s)");
+        Despawn ();
+        ItemContainerDbEntry.Delete (Container, deleteItems: true);
+    }
+
+    private void Despawn ()
+    {
+        if (_despawned)
+        {
+            return;
+        }
+
+        _despawned = true;
+        BroadcastDespawnToVisibleClients ();
+        RemoveFromWorldRegistry ();
+        WorldObjectIndex.Release (ID);
+        QueueFree ();
+    }
+}

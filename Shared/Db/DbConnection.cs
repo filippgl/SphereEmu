@@ -156,8 +156,15 @@ public static class DbConnection
         }
 
         Monsters.DeleteAll ();
+
+        // Before seeding, so the sacks' ids and their uncarried items do not stay reserved
+        var orphanBags = ItemContainerDbEntry.DeleteOrphans ();
+        if (orphanBags > 0)
+        {
+            SphLogger.Info ($"Cleared {orphanBags} loot bag(s) left from the previous run");
+        }
+
         WorldObjectIdCleanup.SeedAndRepair ();
-        // ItemContainers.DeleteAll();
         // Vendors.DeleteAll();
 
         var time = DateTime.Now;
