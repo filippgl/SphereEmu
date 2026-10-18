@@ -40,7 +40,7 @@ public partial class ConsoleCommandParser
         var rng = new RandomNumberGenerator ();
         var checkedSpawners = 0;
         var reasons = new Dictionary<NavPathFailReason, int> ();
-        int rawPaths = 0, rawBad = 0, acceptedBad = 0, accepted = 0;
+        int rawPaths = 0, rawBad = 0, acceptedBad = 0, accepted = 0, unsampled = 0;
 
         foreach (var spawner in spawners)
         {
@@ -54,11 +54,16 @@ public partial class ConsoleCommandParser
 
             checkedSpawners++;
             var leash = spawner.LeashRadiusMeters;
+
+            // FindPath loads tiles itself, but the sample points are picked before it runs
+            TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, leashCenter, leash + 8f);
+            TerrainNavMeshRuntime.TrySyncImmediate ();
             for (var i = 0; i < samples; i++)
             {
                 if (!TrySampleNavPoint (rng, leashCenter, leash, out var start) ||
                     !TrySampleNavPoint (rng, leashCenter, leash, out var goal))
                 {
+                    unsampled++;
                     continue;
                 }
 
@@ -92,7 +97,7 @@ public partial class ConsoleCommandParser
 
         var reasonText = string.Join (", ", reasons.Select (x => $"{x.Key}={x.Value}"));
         SendFeedback ($"/navcheck: {checkedSpawners} spawner(s) within {radius:F0}m; raw paths {rawPaths}, " +
-                      $"raw absurd {rawBad}; accepted {accepted}, accepted absurd {acceptedBad}; {reasonText}");
+                      $"raw absurd {rawBad}; unsampled {unsampled}; accepted {accepted}, accepted absurd {acceptedBad}; {reasonText}");
     }
 
     private static void CollectSpawners (Node node, List<MonsterSpawner> spawners)
@@ -116,7 +121,14 @@ public partial class ConsoleCommandParser
         var distance = leash * Mathf.Sqrt (rng.Randf ());
         var probe = new Vector3 (leashCenter.X + Mathf.Cos (angle) * distance, leashCenter.Y + 30f,
             leashCenter.Z + Mathf.Sin (angle) * distance);
-        return TerrainNavMeshRuntime.TryFindNavMeshBelow (probe, 60f, out point);
+        if (TerrainNavMeshRuntime.TryFindNavMeshBelow (probe, 60f, out point))
+        {
+            return true;
+        }
+
+        // Drop-to-ground is outdoor only; dungeon spawners sample at the leash centre height
+        probe.Y = leashCenter.Y;
+        return TerrainNavMeshRuntime.IsPointOnNavMesh (probe, out point);
     }
 
     // Far outside the leash or spanning many storeys: what knelse saw as walls, floors and continents
