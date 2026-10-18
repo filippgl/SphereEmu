@@ -21,6 +21,7 @@ public partial class ConsoleCommandParser
         var radius = tokens.Length > 0 && float.TryParse (tokens[0], NumberStyles.Float,
             CultureInfo.InvariantCulture, out var r) ? r : 200f;
         var samples = tokens.Length > 1 && int.TryParse (tokens[1], out var s) ? s : 40;
+        var diag = tokens.Length > 2 && tokens[2] == "diag";
 
         Vector3 center;
         if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out center))
@@ -29,13 +30,17 @@ public partial class ConsoleCommandParser
             return;
         }
 
-        Callable.From (() => RunNavCheck (center, radius, samples)).CallDeferred ();
+        Callable.From (() => RunNavCheck (center, radius, samples, diag)).CallDeferred ();
     }
 
-    private void RunNavCheck (Vector3 center, float radius, int samples)
+    private void RunNavCheck (Vector3 center, float radius, int samples, bool diag)
     {
         var spawners = new List<MonsterSpawner> ();
         CollectSpawners (SphereServer.ServerNode, spawners);
+        if (diag)
+        {
+            DiagnoseNearestSpawner (center, spawners);
+        }
 
         var rng = new RandomNumberGenerator ();
         var checkedSpawners = 0;
@@ -98,6 +103,41 @@ public partial class ConsoleCommandParser
         var reasonText = string.Join (", ", reasons.Select (x => $"{x.Key}={x.Value}"));
         SendFeedback ($"/navcheck: {checkedSpawners} spawner(s) within {radius:F0}m; raw paths {rawPaths}, " +
                       $"raw absurd {rawBad}; unsampled {unsampled}; accepted {accepted}, accepted absurd {acceptedBad}; {reasonText}");
+    }
+
+    private void DiagnoseNearestSpawner (Vector3 center, List<MonsterSpawner> spawners)
+    {
+        MonsterSpawner? nearest = null;
+        var best = float.MaxValue;
+        foreach (var spawner in spawners)
+        {
+            var d = spawner.LeashCenterWorld.DistanceSquaredTo (center);
+            if (d < best)
+            {
+                best = d;
+                nearest = spawner;
+            }
+        }
+
+        if (nearest is null)
+        {
+            SendFeedback ($"/navcheck diag: no spawners at all, player {center}");
+            return;
+        }
+
+        var c = nearest.LeashCenterWorld;
+        var loaded = TerrainNavMeshRuntime.EnsureTilesLoaded (nearest, c, nearest.LeashRadiusMeters + 8f);
+        var synced = TerrainNavMeshRuntime.TrySyncImmediate ();
+        var closest = TerrainNavMeshRuntime.TryClosestPoint (c, out var cp);
+        var onNav = TerrainNavMeshRuntime.IsPointOnNavMesh (c, out var snap);
+        var below = TerrainNavMeshRuntime.TryFindNavMeshBelow (c + new Vector3 (0f, 30f, 0f), 60f, out var ground);
+        var path = NavPathQuery.FindPath (nearest, new NavPathRequest (c, c + new Vector3 (5f, 0f, 0f), c,
+            nearest.LeashRadiusMeters));
+        SendFeedback ($"/navcheck diag: player {center}, spawner '{nearest.Name}' at {c} r={nearest.LeashRadiusMeters}; " +
+                      $"files={TerrainNavMeshRuntime.HasAnyTileFiles ()} ensure={loaded} sync={synced} " +
+                      $"ready={TerrainNavMeshRuntime.IsReadyForQueries} regions={TerrainNavMeshRuntime.LoadedRegionCount}; " +
+                      $"closest={closest} {cp}; onNav={onNav} {snap}; below={below} {ground}; " +
+                      $"path={path.Reason} n={path.Waypoints.Count}");
     }
 
     private static void CollectSpawners (Node node, List<MonsterSpawner> spawners)
