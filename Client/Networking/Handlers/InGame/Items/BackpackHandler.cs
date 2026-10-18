@@ -24,7 +24,8 @@ public class BackpackHandler (ushort localId, ClientConnection clientConnection)
     private const int PutInCommand = 6;
 
     /// <summary>
-    /// Cell to cell: player id u32, from u8, to u8
+    /// Cell to cell: player id u32, then the drop cell before the source cell (_inv: [4] g_0460,
+    /// [5] g_0654)
     /// </summary>
     private const int MoveCommand = 4;
 
@@ -76,8 +77,8 @@ public class BackpackHandler (ushort localId, ClientConnection clientConnection)
             }
             case MoveCommand:
             {
-                var from = stream.ReadByte (8);
                 var to = stream.ReadByte (8);
+                var from = stream.ReadByte (8);
                 Backpack.MoveCell (clientConnection, bag, from, to);
                 break;
             }
