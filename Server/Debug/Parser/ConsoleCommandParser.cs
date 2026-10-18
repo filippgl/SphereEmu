@@ -82,6 +82,7 @@ public partial class ConsoleCommandParser
         RegisteredCommands["clearinv"] = ClearInventory;
         RegisteredCommands["tp"] = Teleport;
         RegisteredCommands["npd"] = EnterNewPlayerDungeon;
+        RegisteredCommands["cult"] = Cult;
     }
 
     // A GM chat line when a client is attached, otherwise the server console

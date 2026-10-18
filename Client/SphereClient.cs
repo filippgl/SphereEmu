@@ -5,6 +5,7 @@ using SphServer.Client.State;
 using SphServer.Server.Broadcast;
 using SphServer.Server.Config;
 using SphServer.Server.Debug.Parser;
+using SphServer.Server.GameplayLogic.Cult;
 using SphServer.Shared.Db;
 using SphServer.Shared.GameData.Enums;
 using SphServer.Shared.Db.DataModels;
@@ -319,6 +320,7 @@ public partial class SphereClient : WorldObject
 		Transform = transform;
 		UpdateUnderwater ();
 		WorldObjectVisibilityManager.RefreshRegistration (this);
+		NewPlayerDungeon.CheckExit (this);
 	}
 
 	/// <summary>
@@ -654,7 +656,7 @@ public partial class SphereClient : WorldObject
 		NetworkedStatsUpdater.Update (CurrentCharacter, refreshPeers: false);
 		BroadcastHpToVisibleClients (respawnHp, respawnHp, includeMax: true);
 
-		var (city, respawn) = FindRespawnPoint (CurrentCharacter);
+		var (city, respawn) = CultRules.MaybeOverrideRespawn (CurrentCharacter, FindRespawnPoint (CurrentCharacter));
 		MaybeQueueNetworkPacketSend (new CharacterDbEntrySerializer (CurrentCharacter).GetTeleportByteArray (respawn));
 		// DB keeps Y and Z negated relative to world coords
 		CurrentCharacter.X = respawn.x;
