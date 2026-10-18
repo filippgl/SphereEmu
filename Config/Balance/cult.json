@@ -10,31 +10,45 @@
     // invented: ClanRank for /cult join without a rank (3 = Neophyte).
     "member_rank": "Neophyte",
 
-    // recovered (player memory): members revived on Тантал, at a tower. World x, y, z, turn;
-    // null keeps the nearest city until the tower is located (stand there and run /cult here).
+    // recovered (2004 forum: "респ на Тантале"; player memory: at a tower). World x, y, z, turn;
+    // null keeps the nearest city. /cult here stores a point in the DB, which wins over this.
     "respawn": null,
 
     // recovered (client turnskin.cfg SK01 = npc80, the crater dwarf): region 61 model_or_type for
     // members. null until the wire value that selects the skin is confirmed (/cult skin trials).
     "skin_model": null,
 
-    // recovered (player memory): karma worked the other way round for members and changed drops.
-    // invented: the numbers. Members read these through the mirrored tier (very bad acts as benign).
-    "drop_chance_multiplier_per_karma": {
-        "Очень_Плохая": 0.6,
-        "Плохая": 0.8,
-        "Нейтральная": 1.0,
-        "Хорошая": 1.3,
-        "Благая": 1.6
+    // recovered (2004 cult fiction: "несмотря на благую карму начали выпадать порошки"; player
+    // memory: karma worked the other way round and changed drops). The drop is the member's own bag
+    // on death. invented: the numbers, written as an ordinary player's odds; members read them
+    // through the mirrored tier, so a member with benign karma uses the very bad row.
+    "death_drop_chance_per_karma": {
+        "Очень_Плохая": 0.8,
+        "Плохая": 0.5,
+        "Нейтральная": 0.2,
+        "Хорошая": 0.05,
+        "Благая": 0.0
     },
 
-    // invented: extra loot items on top of the 1-2 roll, same mirrored reading.
+    // invented: at most this many bag items per death.
+    "death_drop_max_items": 1,
+
+    // invented: mob loot odds per karma tier; all 1.0 because the recovered drop is the death drop.
+    "drop_chance_multiplier_per_karma": {
+        "Очень_Плохая": 1.0,
+        "Плохая": 1.0,
+        "Нейтральная": 1.0,
+        "Хорошая": 1.0,
+        "Благая": 1.0
+    },
+
+    // invented: extra mob loot items per karma tier; all 0 for the same reason.
     "extra_drop_items_per_karma": {
         "Очень_Плохая": 0,
         "Плохая": 0,
         "Нейтральная": 0,
         "Хорошая": 0,
-        "Благая": 1
+        "Благая": 0
     },
 
     // invented: off keeps the stock drop odds for everyone outside the clan.
