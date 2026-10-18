@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Godot;
 using SphServer.Godot.Scripts.Navigation;
+using SphServer.Godot.Scripts.Terrain;
 using SphServer.Godot.Scripts.Objects.HelperGizmos;
 using SphServer.Sphere.Game;
 using SphServer.Sphere.Game.WorldObject;
@@ -197,5 +198,107 @@ public partial class ConsoleCommandParser
         }
 
         return maxY - minY > NavCheckBadVerticalSpanMeters;
+    }
+
+    private const float MobWatchRadiusMeters = 150f;
+    private const float MobWatchOffMeshHorizontalMeters = 1.5f;
+    private const float MobWatchOffMeshVerticalMeters = 2f;
+    private const float MobWatchJumpMeters = 10f;
+
+    // Samples moving mobs near the player: standing off the navmesh is inside a wall or under
+    // the floor, a long hop between samples is a teleport across joined meshes
+    private void MobWatch (string args)
+    {
+        var seconds = float.TryParse ((args ?? string.Empty).Trim (), NumberStyles.Float,
+            CultureInfo.InvariantCulture, out var v) ? v : 60f;
+        if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out _))
+        {
+            SendFeedback ("/mobwatch needs a connected client with a position.");
+            return;
+        }
+
+        SendFeedback ($"/mobwatch: watching moving mobs within {MobWatchRadiusMeters:F0}m for {seconds:F0}s");
+        Callable.From (() => RunMobWatch (seconds)).CallDeferred ();
+    }
+
+    private async void RunMobWatch (float seconds)
+    {
+        var tree = SphereServer.ServerNode.GetTree ();
+        var last = new Dictionary<ulong, Vector3> ();
+        var watched = new HashSet<ulong> ();
+        int samples = 0, offMesh = 0, jumps = 0, depthFlips = 0;
+        var worst = string.Empty;
+        var worstDeviation = 0f;
+        var end = Time.GetTicksMsec () + (ulong) (seconds * 1000f);
+        while (Time.GetTicksMsec () < end)
+        {
+            await SphereServer.ServerNode.ToSignal (tree.CreateTimer (0.5), SceneTreeTimer.SignalName.Timeout);
+            if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out var player))
+            {
+                break;
+            }
+
+            var monsters = new List<Monster> ();
+            CollectMonsters (SphereServer.ServerNode, monsters);
+            foreach (var monster in monsters)
+            {
+                var id = monster.GetInstanceId ();
+                var pos = monster.GlobalPosition;
+                if (Horizontal (pos, player) > MobWatchRadiusMeters)
+                {
+                    last.Remove (id);
+                    continue;
+                }
+
+                var moving = monster.NavMode != MonsterNavMode.Idle;
+                if (last.TryGetValue (id, out var prev) && moving)
+                {
+                    watched.Add (id);
+                    samples++;
+                    if (prev.DistanceTo (pos) > MobWatchJumpMeters)
+                    {
+                        jumps++;
+                    }
+
+                    if (IndoorAreaCriteria.IsIndoorDepth (prev.Y) != IndoorAreaCriteria.IsIndoorDepth (pos.Y))
+                    {
+                        depthFlips++;
+                    }
+
+                    var onMesh = TerrainNavMeshRuntime.IsPointOnNavMesh (pos, out var snap);
+                    var dv = onMesh ? Mathf.Abs (snap.Y - pos.Y) : float.MaxValue;
+                    var dh = onMesh ? Horizontal (snap, pos) : float.MaxValue;
+                    if (dv > MobWatchOffMeshVerticalMeters || dh > MobWatchOffMeshHorizontalMeters)
+                    {
+                        offMesh++;
+                        var deviation = Mathf.Min (Mathf.Max (dv, dh), 9999f);
+                        if (deviation > worstDeviation)
+                        {
+                            worstDeviation = deviation;
+                            worst = $"{monster.Name} {monster.NavMode} at {pos}, mesh {(onMesh ? snap.ToString () : "none")}";
+                        }
+                    }
+                }
+
+                last[id] = pos;
+            }
+        }
+
+        SendFeedback ($"/mobwatch: {watched.Count} moving mob(s), {samples} sample(s); off navmesh {offMesh}, " +
+                      $"jumps>{MobWatchJumpMeters:F0}m {jumps}, surface/dungeon flips {depthFlips}" +
+                      (worst.Length > 0 ? $"; worst {worstDeviation:F1}m: {worst}" : string.Empty));
+    }
+
+    private static void CollectMonsters (Node node, List<Monster> monsters)
+    {
+        if (node is Monster monster)
+        {
+            monsters.Add (monster);
+        }
+
+        foreach (var child in node.GetChildren ())
+        {
+            CollectMonsters (child, monsters);
+        }
     }
 }

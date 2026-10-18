@@ -85,6 +85,7 @@ public partial class ConsoleCommandParser
         RegisteredCommands["pos"] = ShowPosition;
         RegisteredCommands["cult"] = Cult;
         RegisteredCommands["navcheck"] = NavCheck;
+        RegisteredCommands["mobwatch"] = MobWatch;
     }
 
     // A GM chat line when a client is attached, otherwise the server console
