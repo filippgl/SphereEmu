@@ -275,6 +275,8 @@ public class ItemContainerDbEntry
     /// <summary>
     /// Constant lead after the record header in every live list frame
     /// </summary>
+    private const uint ListLead = 0x13;
+
     private const byte FollowOnMarker = 5;
     private const byte LockMessage = 3;
     private const byte SlotMessage = 2;
@@ -294,7 +296,11 @@ public class ItemContainerDbEntry
         var stream = SphServer.Shared.BitStream.SphBitStream.GetWriteBitStream ();
         stream.WriteUInt16 ((ushort) Id, 16);
         stream.WriteByte (0, 2);
-        stream.WriteUInt16 ((ushort) ObjectType.Sack_Mob_Loot, 12);
+        stream.WriteUInt16 ((ushort) ObjectType.Sack_Mob_Loot, 10);
+        stream.WriteByte (0, 1);
+        stream.WriteByte (0x0A, 8);
+        stream.WriteUInt16 ((ushort) ListLead, 16);
+        stream.WriteByte ((byte) (ListLead >> 16), 4);
 
         WriteMessageHeader (stream, LockMessage, 1);
         stream.WriteByte (0, 8);
@@ -310,16 +316,13 @@ public class ItemContainerDbEntry
             stream.WriteUInt16 ((ushort) (weight >> 16), 16);
         }
 
-        stream.WriteByte (0, 7);
         return Packet.ToByteArray (stream.GetStreamData (), 3);
     }
 
     private static void WriteMessageHeader (SphServer.Shared.BitStream.SphWriteStream stream, byte type, byte length)
     {
-        // ct_mbag's ContMan reads an 8-bit command (sfera_protocol_schema: u8, array8<u8>); the
-        // 4-bit form of the 2022 captures is what the player module takes, not the sack
         stream.WriteByte (FollowOnMarker, 7);
-        stream.WriteByte (type, 8);
+        stream.WriteByte (type, 4);
         stream.WriteByte (length, 8);
     }
 }
