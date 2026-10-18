@@ -127,6 +127,16 @@ Decode (ItemRecordEncoder.EncodeOnGround (token, 5, -7, 9, 3));
 var sackType = typeof (ItemRecordEncoder).Assembly.GetType ("SphServer.Sphere.Game.WorldObject.LootBag")!;
 var spawnSack = sackType.GetMethod ("BuildLiveSpawn", BindingFlags.Static | BindingFlags.NonPublic)!;
 Decode ((byte[]) spawnSack.Invoke (null, new object[] { (ushort) 1234, 5f, -7f, 9f, (byte) 3 })!);
+foreach (var deleted in new[] { true, false })
+{
+    var reply = SphServer.Shared.Networking.CommonPackets.DeleteCharacterResult (0x4F77, deleted);
+    var evt = Decode (reply).Single ();
+    Check (evt.ProcessId == 0x774F && evt.Region == 12 && evt.Command == 42,
+        "Delete result must reach the native character selection handler");
+    var resultReader = new BitStreams.BitStream (reply);
+    resultReader.ReadBits (109);
+    Check (resultReader.ReadUInt32 () == (deleted ? 0u : 1u), "Native delete result is a full u32");
+}
 var activeType = typeof (ItemRecordEncoder).Assembly.GetType (
     "SphServer.Client.Networking.Handlers.InGame.Mutator.ActiveMutators")!;
 var setup = activeType.GetMethod ("BuildSetup", BindingFlags.NonPublic | BindingFlags.Static)!;
