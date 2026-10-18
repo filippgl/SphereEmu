@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using Godot;
 using SphServer.Godot.Scripts.Navigation;
+using SphServer.Godot.Scripts.World;
 using SphServer.Godot.Scripts.Terrain;
 using SphServer.Godot.Scripts.Objects.HelperGizmos;
 using SphServer.Sphere.Game;
@@ -41,11 +42,25 @@ public partial class ConsoleCommandParser
             return;
         }
 
-        Callable.From (() => RunNavCheck (center, radius, samples, diag, bench)).CallDeferred ();
+        var loadChunks = at >= 0;
+        Callable.From (() => RunNavCheck (center, radius, samples, diag, bench, loadChunks)).CallDeferred ();
     }
 
-    private async void RunNavCheck (Vector3 center, float radius, int samples, bool diag, bool bench = false)
+    private async void RunNavCheck (Vector3 center, float radius, int samples, bool diag, bool bench = false,
+        bool loadChunks = false)
     {
+        var tree = SphereServer.ServerNode.GetTree ();
+
+        // Spawners exist only in world chunks loaded around players, so a remote check loads them
+        if (loadChunks && FindNode<WorldChunkStreamer> (tree.Root) is { } streamer)
+        {
+            streamer.EnsureAroundWorldPosition (center);
+            for (var i = 0; i < 5; i++)
+            {
+                await SphereServer.ServerNode.ToSignal (tree, SceneTree.SignalName.PhysicsFrame);
+            }
+        }
+
         var spawners = new List<MonsterSpawner> ();
         CollectSpawners (SphereServer.ServerNode, spawners);
         spawners.RemoveAll (x => Horizontal (x.LeashCenterWorld, center) > radius);
@@ -56,7 +71,6 @@ public partial class ConsoleCommandParser
             TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, spawner.LeashCenterWorld, spawner.LeashRadiusMeters + 8f);
         }
 
-        var tree = SphereServer.ServerNode.GetTree ();
         await TerrainNavMeshRuntime.SyncAsync (tree);
         for (var i = 0; i < 3; i++)
         {
@@ -258,6 +272,24 @@ public partial class ConsoleCommandParser
         }
 
         return $"{path.Length} pts, Y {minY:F1}..{maxY:F1}, farthest {farthest:F0}m from centre, length {length:F0}m";
+    }
+
+    private static T? FindNode<T> (Node node) where T : Node
+    {
+        if (node is T match)
+        {
+            return match;
+        }
+
+        foreach (var child in node.GetChildren ())
+        {
+            if (FindNode<T> (child) is { } found)
+            {
+                return found;
+            }
+        }
+
+        return null;
     }
 
     private static void CollectSpawners (Node node, List<MonsterSpawner> spawners)
