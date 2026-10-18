@@ -10,6 +10,7 @@ using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
 using SphServer.Shared.WorldState;
+using SphServer.Sphere.Game.WorldObject;
 using static SphServer.Shared.BitStream.SphBitStream;
 using static SphServer.Shared.Networking.DataModel.Serializers.SphereDbEntrySerializerBase;
 
@@ -189,6 +190,7 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
         clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.Encode (item, ByteSwap (localId)));
 
         TakeOutOfLootBag (item);
+        TakeOffTheGround (item);
 
         if (!ItemDbEntry.IsInventorySlot (targetSlot))
         {
@@ -200,6 +202,21 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
 
         // Recalc writes worn look and item stats, so a save before it would miss them
         clientConnection.SaveSelectedCharacter ();
+    }
+
+    /// <summary>
+    /// A dropped item is lifted for everyone who sees it and no longer goes back to its dropper
+    /// </summary>
+    private static void TakeOffTheGround (ItemDbEntry item)
+    {
+        if (item.DroppedOnGroundBy is null)
+        {
+            return;
+        }
+
+        item.DroppedOnGroundBy = null;
+        DbConnection.Items.Update (item);
+        GroundItem.Find (item.Id)?.PickedUp ();
     }
 
     /// <summary>

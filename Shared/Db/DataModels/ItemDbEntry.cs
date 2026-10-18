@@ -84,6 +84,11 @@ public class ItemDbEntry
     public Dictionary<Locale, string> Localization { get; set; } = new ();
     public int CurrentDurability { get; set; }
     public int? ParentContainerId { get; set; }
+
+    /// <summary>
+    /// Set while the item lies on the ground after a drop: the character it goes back to
+    /// </summary>
+    public int? DroppedOnGroundBy { get; set; }
     public Dictionary<string, object> ContentsData { get; set; } = new ();
     public Guild RequiredGuild { get; set; }
     public int RequiredGuildRankMinusOne { get; set; }

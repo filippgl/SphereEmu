@@ -9,6 +9,8 @@ using SphServer.Shared.Db;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
+using SphServer.Sphere.Game.WorldObject;
+using Vector3 = Godot.Vector3;
 
 namespace SphServer.Client.Networking.Handlers.InGame.Items;
 
@@ -17,6 +19,7 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
     : ISphereClientNetworkingHandler
 {
     private const int ItemIdBitOffset = 141;
+    private const float MaxDragDistance = 10f;
 
     public async Task Handle (byte[] frame, double delta)
     {
@@ -41,7 +44,7 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
             return;
         }
 
-        // The client lets go of the item only once the sack's spawn re-parents it there
+        // Live keeps a dropped item in the world as itself, sent with the ground placement
         var wasWorn = slots.Any (slot => !ItemDbEntry.IsInventorySlot (slot));
         foreach (var slot in slots)
         {
@@ -54,9 +57,21 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
         }
 
         client.SaveCharacter ();
-        var bag = ItemContainerDbEntry.SpawnWithItems (character.Origin, [item], droppedByCharacterId: character.Id);
+
+        // The drag sends the item's position as it moves; a stale one from an old drag is ignored
+        var dragged = new Vector3 ((float) item.X, (float) item.Y, (float) item.Z);
+        var position = dragged.DistanceTo (character.Origin) <= MaxDragDistance ? dragged : character.Origin;
+
+        item.ParentContainerId = null;
+        item.DroppedOnGroundBy = character.Id;
+        item.X = position.X;
+        item.Y = position.Y;
+        item.Z = position.Z;
+        DbConnection.Items.Update (item);
+        GroundItem.Spawn (item, character.Id, position);
 
         var name = item.Localization.GetValueOrDefault (Locale.Russian, item.GameObjectType.ToString ());
-        SphLogger.Info ($"Dropped {name} [{itemId:X4}] from {string.Join (",", slots)} into loot bag {bag.Id:X4}. Client ID: {localId:X4}");
+        SphLogger.Info ($"Dropped {name} [{itemId:X4}] from {string.Join (",", slots)} onto the ground at " +
+                        $"({position.X:F1}, {position.Y:F1}, {position.Z:F1}). Client ID: {localId:X4}");
     }
 }

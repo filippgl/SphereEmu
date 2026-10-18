@@ -73,6 +73,45 @@ public static class ItemRecordEncoder
     }
 
     /// <summary>
+    /// Ground placement after the angle (alchemy_resource_ground.spdp); the low bits are the
+    /// contain state, 1 on the ground where a contained item has 2
+    /// </summary>
+    private const uint GroundPlacement = 0x322C89;
+
+    /// <summary>
+    /// An item lying in the world, as the captured ground template has it: world position and
+    /// angle, ground placement, then only properties and count, with 8-bit message types and no
+    /// parent
+    /// </summary>
+    public static byte[] EncodeOnGround (ItemDbEntry item, float x, float y, float z, byte angle)
+    {
+        var stream = GetWriteBitStream ();
+        WriteItemHeader (stream, (ushort) item.Id, (int) item.WireObjectType);
+        WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (x));
+        WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (y));
+        WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (z));
+        stream.WriteByte (angle, 8);
+        stream.WriteUInt32 (GroundPlacement, 24);
+        stream.WriteByte (1, 1);
+        stream.WriteUInt16 ((ushort) (item.GameId & 0x3FFF), 14);
+        WriteSuffix (stream, SuffixWireFor (item));
+
+        stream.WriteByte ((byte) FollowOnRecord, 7);
+        stream.WriteByte ((byte) PropertiesMessage, 8);
+        stream.WriteByte (5, 8);
+        stream.WriteByte (0, 8);
+        WriteUInt32Full (stream, uint.MaxValue);
+
+        stream.WriteByte ((byte) FollowOnRecord, 7);
+        stream.WriteByte ((byte) CountMessage, 8);
+        stream.WriteByte (2, 8);
+        stream.WriteUInt16 ((ushort) Math.Max (1, item.ItemCount), 16);
+
+        stream.WriteByte (0, 7);
+        return Packet.ToByteArray (stream.GetStreamData (), 3);
+    }
+
+    /// <summary>
     /// No game object id: object type alone, so every item of a type shares one icon
     /// </summary>
     public static byte[] EncodeWithoutGameId (ushort entityId, int objectType, ushort containerObjectId,

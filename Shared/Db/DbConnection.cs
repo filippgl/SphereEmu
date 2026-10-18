@@ -164,6 +164,12 @@ public static class DbConnection
             SphLogger.Info ($"Cleared {orphanBags} loot bag(s) left from the previous run");
         }
 
+        var groundItems = ItemContainerDbEntry.ReturnGroundItemsFromLastRun ();
+        if (groundItems > 0)
+        {
+            SphLogger.Info ($"Returned {groundItems} dropped item(s) left on the ground to their owners");
+        }
+
         WorldObjectIdCleanup.SeedAndRepair ();
         // Vendors.DeleteAll();
 

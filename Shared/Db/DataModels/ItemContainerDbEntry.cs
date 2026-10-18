@@ -131,44 +131,59 @@ public class ItemContainerDbEntry
     /// </summary>
     private static void ReturnToOwner (ItemContainerDbEntry container, int ownerId)
     {
-        var client = ActiveClients.GetAll ().Values
-            .FirstOrDefault (x => x.CurrentCharacter?.Id == ownerId);
-        var stored = client is null ? DbConnection.Characters.FindById (ownerId) : null;
-
         foreach (var itemId in container.Contents.Values)
         {
-            var item = DbConnection.Items.FindById (itemId);
-            if (item is null)
+            if (DbConnection.Items.FindById (itemId) is { } item)
             {
-                continue;
+                var slot = ReturnItemToOwner (item, ownerId);
+                SphLogger.Info (slot is null
+                    ? $"Loot bag {container.Id:X4}: owner {ownerId} has no free cell for {item.Id:X4}, kept unparented"
+                    : $"Loot bag {container.Id:X4}: returned {item.Id:X4} to owner {ownerId} in {slot}");
             }
+        }
+    }
 
-            item.ParentContainerId = null;
-            DbConnection.Items.Update (item);
+    /// <summary>
+    /// An online owner gets the item declared again; offline, it goes into the stored character.
+    /// With no free cell it stays an unparented row rather than being deleted
+    /// </summary>
+    public static BelongingSlot? ReturnItemToOwner (ItemDbEntry item, int ownerId)
+    {
+        item.ParentContainerId = null;
+        item.DroppedOnGroundBy = null;
+        DbConnection.Items.Update (item);
 
-            BelongingSlot? slot;
-            if (client is not null)
-            {
-                slot = client.PutItemInInventoryAndDeclare (item);
-            }
-            else
-            {
-                slot = stored?.FindEmptyInventorySlot ();
-                if (slot is not null)
-                {
-                    stored!.Items[slot.Value] = item.Id;
-                }
-            }
-
-            SphLogger.Info (slot is null
-                ? $"Loot bag {container.Id:X4}: owner {ownerId} has no free cell for {item.Id:X4}, kept unparented"
-                : $"Loot bag {container.Id:X4}: returned {item.Id:X4} to owner {ownerId} in {slot}");
+        var client = ActiveClients.GetAll ().Values
+            .FirstOrDefault (x => x.CurrentCharacter?.Id == ownerId);
+        if (client is not null)
+        {
+            return client.PutItemInInventoryAndDeclare (item);
         }
 
-        if (stored is not null)
+        var stored = DbConnection.Characters.FindById (ownerId);
+        var slot = stored?.FindEmptyInventorySlot ();
+        if (slot is not null)
         {
+            stored!.Items[slot.Value] = item.Id;
             DbConnection.Characters.Update (stored);
         }
+
+        return slot;
+    }
+
+    /// <summary>
+    /// Dropped items live only as ground objects, so any left from the previous run go back to
+    /// the players who dropped them
+    /// </summary>
+    public static int ReturnGroundItemsFromLastRun ()
+    {
+        var items = DbConnection.Items.Find (x => x.DroppedOnGroundBy != null).ToList ();
+        foreach (var item in items)
+        {
+            ReturnItemToOwner (item, item.DroppedOnGroundBy!.Value);
+        }
+
+        return items.Count;
     }
 
     public bool RemoveItemByIdAndDestroyContainerIfEmpty (int itemGlobalId)
