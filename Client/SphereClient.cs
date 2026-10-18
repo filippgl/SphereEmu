@@ -572,6 +572,21 @@ public partial class SphereClient : WorldObject
 				entityId, origin.X, -origin.Y, -origin.Z, CurrentCharacter.Angle));
 		client.MaybeQueueNetworkPacketSend (
 			CommonPackets.BuildSetWornGearPacket (entityId, CharacterWornLook.ToWearPattern (CurrentCharacter)));
+		CultRules.SendSkinIfAny (client, entityId, CurrentCharacter);
+	}
+
+	/// <summary>
+	/// specab byte 2 swaps the body for a turnskin model; the wearer gets it on its own record
+	/// </summary>
+	public void BroadcastSkinToVisibleClients (byte skin)
+	{
+		if (CurrentCharacter is null)
+		{
+			return;
+		}
+
+		CultRules.SendSkin (this, CurrentCharacter.ClientIndex, skin);
+		ForEachVisibleClient (viewer => CultRules.SendSkin (viewer, viewer.GetLocalObjectId (ID), skin));
 	}
 
 	/// <summary>

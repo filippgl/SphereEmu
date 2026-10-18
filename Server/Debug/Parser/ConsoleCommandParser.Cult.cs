@@ -53,10 +53,14 @@ public partial class ConsoleCommandParser
                 break;
 
             case "skin":
-                // Trial of region 61 model_or_type; seen by peers on their next spawn of this character
-                uint? model = split.Length > 1 && uint.TryParse (split[1], out var value) ? value : null;
-                CultRules.SetSpawnModelTrial (currentCharacterDbEntry, model);
-                SendFeedback (model is null ? "Spawn model trial cleared" : $"Spawn model trial = {model}");
+                // turnskin.cfg SK number; off or 0 restores the character's own body
+                byte skin = split.Length > 1 && byte.TryParse (split[1], out var value) ? value : (byte) 0;
+                if (sphereClient is not null)
+                {
+                    CultRules.SetSkin (sphereClient, skin);
+                }
+
+                SendFeedback (skin == 0 ? "Skin removed" : $"Skin set to SK{skin:D2}");
                 break;
 
             default:

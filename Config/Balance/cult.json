@@ -14,9 +14,9 @@
     // null keeps the nearest city. /cult here stores a point in the DB, which wins over this.
     "respawn": null,
 
-    // recovered (client turnskin.cfg SK01 = npc80, the crater dwarf): region 61 model_or_type for
-    // members. null until the wire value that selects the skin is confirmed (/cult skin trials).
-    "skin_model": null,
+    // recovered (Игромания 2004: members became crater dwarves; client turnskin.cfg SK01 = npc80):
+    // turnskin number given on joining, sent as specab byte 2. 0 gives none.
+    "skin_number": 1,
 
     // recovered (2004 cult fiction: "несмотря на благую карму начали выпадать порошки"; player
     // memory: karma worked the other way round and changed drops). The drop is the member's own bag
