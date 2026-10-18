@@ -1,4 +1,5 @@
 using System.Globalization;
+using SphServer.Helpers;
 using SphServer.Server.GameplayLogic.Cult;
 
 namespace SphServer.Server.Debug.Parser;
@@ -29,9 +30,10 @@ public partial class ConsoleCommandParser
             case "here":
                 // DB keeps Y and Z negated relative to world coords
                 var c = currentCharacterDbEntry;
-                var here = string.Format (CultureInfo.InvariantCulture, "[{0:F1}, {1:F1}, {2:F1}, {3:F2}]",
-                    c.X, -c.Y, -c.Z, c.Angle);
-                SendFeedback ($"cult.json \"respawn\": {here}");
+                var here = new WorldCoords (c.X, -c.Y, -c.Z, c.Angle);
+                CultRules.SetRespawnPoint (here);
+                SendFeedback (string.Format (CultureInfo.InvariantCulture,
+                    "Cult respawn set here: [{0:F1}, {1:F1}, {2:F1}, {3:F2}]", here.x, here.y, here.z, here.turn));
                 break;
 
             default:
