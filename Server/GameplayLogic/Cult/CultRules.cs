@@ -1,3 +1,4 @@
+using LiteDB;
 using SphServer.Client;
 using SphServer.Client.Networking.GameplayLogic.Stats;
 using SphServer.Helpers;
@@ -92,8 +93,58 @@ public static class CultRules
         return true;
     }
 
-    public static WorldCoords? RespawnPoint =>
-        Config?.Respawn is { } r ? new WorldCoords (r[0], r[1], r[2], r.Length > 3 ? r[3] : 0) : null;
+    private const int StateId = 1;
+
+    private static ILiteCollection<CultStateDbEntry> State => DbConnection.Db.GetCollection<CultStateDbEntry> ("Cult");
+
+    /// <summary>
+    /// The point set in game wins over cult.json, so a GM can place it without a redeploy
+    /// </summary>
+    private static readonly Dictionary<int, uint> SpawnModelTrials = new ();
+
+    /// <summary>
+    /// region 61 model_or_type for this character, or null for the packed look; the client runs
+    /// NumToModel on it when it is not 101
+    /// </summary>
+    public static uint? SpawnModelOverride (CharacterDbEntry character)
+    {
+        if (SpawnModelTrials.TryGetValue (character.Id, out var trial))
+        {
+            return trial;
+        }
+
+        return IsMember (character) ? Config?.SkinModel : null;
+    }
+
+    /// <summary>
+    /// Null clears it; peers see the change on their next spawn of this character
+    /// </summary>
+    public static void SetSpawnModelTrial (CharacterDbEntry character, uint? model)
+    {
+        if (model is { } value)
+        {
+            SpawnModelTrials[character.Id] = value;
+        }
+        else
+        {
+            SpawnModelTrials.Remove (character.Id);
+        }
+    }
+
+    public static WorldCoords? RespawnPoint
+    {
+        get
+        {
+            var r = State.FindById (StateId)?.Respawn ?? Config?.Respawn;
+            return r is { Length: >= 3 } ? new WorldCoords (r[0], r[1], r[2], r.Length > 3 ? r[3] : 0) : null;
+        }
+    }
+
+    public static void SetRespawnPoint (WorldCoords point)
+    {
+        State.Upsert (new CultStateDbEntry { Id = StateId, Respawn = [point.x, point.y, point.z, point.turn] });
+        SphLogger.Info ($"Cult: respawn point set to [{point}]");
+    }
 
     /// <summary>
     /// Members revive at the cult's own point; everyone else keeps the nearest city
