@@ -63,16 +63,19 @@ public static class ItemRecordEncoder
     /// check divides the weight by it, so with no amount every drop into a cell dies on a division
     /// by zero in the script and is never sent
     /// </summary>
-    public static byte[] EncodeCount (ItemDbEntry item)
+    public static byte[] EncodeCount (ItemDbEntry item) =>
+        EncodeCount ((ushort) item.Id, item.WireObjectType, item.ItemCount);
+
+    public static byte[] EncodeCount (ushort itemId, ObjectType wireObjectType, int count)
     {
         var stream = GetWriteBitStream ();
-        stream.WriteUInt16 ((ushort) item.Id, 16);
+        stream.WriteUInt16 (itemId, 16);
         stream.WriteByte (0, 2);
-        stream.WriteUInt16 ((ushort) ((int) item.WireObjectType & 0xFFF), 12);
+        stream.WriteUInt16 ((ushort) ((int) wireObjectType & 0xFFF), 12);
         stream.WriteByte (ContManRegionWire, 7);
         stream.WriteByte ((byte) CountMessage, 4);
         stream.WriteByte (2, 8);
-        stream.WriteUInt16 ((ushort) Math.Max (1, item.ItemCount), 16);
+        stream.WriteUInt16 ((ushort) Math.Max (1, count), 16);
         stream.WriteByte (0, 7);
         return Packet.ToByteArray (stream.GetStreamData (), 3);
     }
