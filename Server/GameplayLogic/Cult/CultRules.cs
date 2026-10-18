@@ -7,6 +7,10 @@ using SphServer.Shared.Db;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.GameData.Enums;
 using SphServer.Shared.Logger;
+using SphServer.Shared.Networking;
+using SphServer.Packets;
+using SphServer.Shared.WorldState;
+using SphServer.System;
 using SphServer.Sphere.Game.WorldObject;
 
 namespace SphServer.Server.GameplayLogic.Cult;
@@ -153,6 +157,63 @@ public static class CultRules
         (Cities City, WorldCoords Coords) nearest)
     {
         return IsMember (character) && RespawnPoint is { } point ? (nearest.City, point) : nearest;
+    }
+
+    private static readonly BelongingSlot[] BagSlots =
+    [
+        BelongingSlot.Inventory_1, BelongingSlot.Inventory_2, BelongingSlot.Inventory_3, BelongingSlot.Inventory_4,
+        BelongingSlot.Inventory_5, BelongingSlot.Inventory_6, BelongingSlot.Inventory_7, BelongingSlot.Inventory_8,
+        BelongingSlot.Inventory_9, BelongingSlot.Inventory_10
+    ];
+
+    /// <summary>
+    /// A member may lose bag items into a sack where they fell; the sack returns them if nobody
+    /// takes it. Worn gear stays, as with an ordinary karma drop
+    /// </summary>
+    public static void OnMemberDeath (SphereClient client)
+    {
+        var character = client.CurrentCharacter;
+        if (character is null || !IsMember (character) || Config is not { } cfg)
+        {
+            return;
+        }
+
+        var karma = EffectiveKarma (character);
+        var chance = cfg.DeathDropChancePerKarma.GetValueOrDefault (karma);
+        var candidates = BagSlots.Where (s => character.Items.ContainsKey (s)).ToList ();
+        var dropped = new List<ItemDbEntry> ();
+        for (var i = 0; i < cfg.DeathDropMaxItems && candidates.Count > 0; i++)
+        {
+            if (SphRng.Rng.NextDouble () >= chance)
+            {
+                continue;
+            }
+
+            var slot = candidates[SphRng.Rng.Next (candidates.Count)];
+            candidates.Remove (slot);
+            if (DbConnection.Items.FindById (character.Items[slot]) is not { } item)
+            {
+                continue;
+            }
+
+            character.Items.Remove (slot);
+            if (ItemSlotReserve.Build (character.ClientIndex, slot, ItemSlotReserve.NoItem) is { } clear)
+            {
+                client.MaybeQueueNetworkPacketSend (clear);
+            }
+
+            dropped.Add (item);
+        }
+
+        SphLogger.Info ($"Cult: {character.Name} died with karma {character.Karma} acting as {karma}, " +
+                        $"drop chance {chance:P0}, dropped {dropped.Count}");
+        if (dropped.Count == 0)
+        {
+            return;
+        }
+
+        client.SaveCharacter ();
+        ItemContainerDbEntry.SpawnWithItems (client.GlobalPosition, dropped, character.TitleMinusOne, character.Id);
     }
 
     /// <summary>

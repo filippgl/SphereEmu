@@ -48,6 +48,16 @@ public class CultBalance : IValidatableBalanceConfig
     public Dictionary<KarmaTypes, int> ExtraDropItemsPerKarma { get; init; } = new ();
 
     /// <summary>
+    /// Chance a member drops a carried item on death, per karma tier as an ordinary player would
+    /// have it; members read it through the mirrored tier, so benign karma drops the most
+    /// </summary>
+    [JsonPropertyName ("death_drop_chance_per_karma")]
+    public Dictionary<KarmaTypes, double> DeathDropChancePerKarma { get; init; } = new ();
+
+    [JsonPropertyName ("death_drop_max_items")]
+    public int DeathDropMaxItems { get; init; } = 1;
+
+    /// <summary>
     /// Off keeps karma out of drops for everyone outside the clan
     /// </summary>
     [JsonPropertyName ("karma_drops_for_non_members")]
