@@ -44,7 +44,9 @@ public static class NewPlayerDungeon
     private const int StartingMoney = 10;
     private const double TeleportDelaySeconds = 1;
     private const double WorldLoadPollSeconds = 0.25;
-    private const double WorldLoadTimeoutSeconds = 120;
+    private const double FirstTeleportMaxWaitSeconds = 10;
+    private const double TeleportRetrySeconds = 5;
+    private const int TeleportRetryCount = 24;
     private const double LoadDelaySeconds = 0.5;
 
     /// <summary>
@@ -101,6 +103,14 @@ public static class NewPlayerDungeon
 
     private static readonly ushort[] tutorialEntityIds = new ushort[TutorialPoints.Length];
     private static ushort exitTeleportEntityId;
+
+    /// <summary>
+    /// When each client last left through the portal: its next position update can still be on
+    /// the portal, and the entry teleport retries must not pull it back in
+    /// </summary>
+    private static readonly Dictionary<ushort, DateTime> lastExitAt = [];
+
+    private const double ExitCooldownSeconds = 10;
     private static ushort labyrinthEntityId;
     private static ushort starterSwordEntityId;
     private static Monster? dungeonMob;
@@ -128,13 +138,13 @@ public static class NewPlayerDungeon
         character.Angle = ServerConfig.AppConfig.Spawn_Angle;
     }
 
-    private static void MoveToDungeon (CharacterDbEntry character)
+    private static void MoveToDungeon (CharacterDbEntry character, WorldCoords target)
     {
-        // DB keeps Y and Z negated relative to world coords; TeleportCoords.y is already flipped
-        character.X = TeleportCoords.x;
-        character.Y = TeleportCoords.y;
-        character.Z = -TeleportCoords.z;
-        character.Angle = TeleportCoords.turn;
+        // DB keeps Y and Z negated relative to world coords; the target's y is already flipped
+        character.X = target.x;
+        character.Y = target.y;
+        character.Z = -target.z;
+        character.Angle = target.turn;
     }
 
     /// <summary>
@@ -154,24 +164,49 @@ public static class NewPlayerDungeon
     {
         try
         {
-            // A cold client can sit on the loading screen for seconds after entry, and a teleport
-            // sent then is lost, leaving the newcomer at the regular spawn
-            for (var waited = 0.0; !client.WorldLoaded && waited < WorldLoadTimeoutSeconds; waited += WorldLoadPollSeconds)
+            // A teleport that lands during the loading screen is dropped, and how long that screen
+            // lasts varies (seconds on a warm client, half a minute in a VM; the world-loaded frame
+            // does not always come). So the teleport is sent early, re-sent once the client reports
+            // that frame, and re-sent while the client's own position updates still put it outside
+            for (var waited = 0.0; !client.WorldLoaded && waited < FirstTeleportMaxWaitSeconds; waited += WorldLoadPollSeconds)
             {
-                await client.ToSignal (client.GetTree ().CreateTimer (WorldLoadPollSeconds), SceneTreeTimer.SignalName.Timeout);
-                if (!GodotObject.IsInstanceValid (client))
+                if (!await Delay (client, WorldLoadPollSeconds))
                 {
                     return;
                 }
             }
 
-            await client.ToSignal (client.GetTree ().CreateTimer (TeleportDelaySeconds), SceneTreeTimer.SignalName.Timeout);
-            if (!GodotObject.IsInstanceValid (client))
+            if (!await Delay (client, TeleportDelaySeconds))
             {
                 return;
             }
 
+            var startedAt = DateTime.UtcNow;
             Enter (client, replayCapturedObjects: true);
+            var sawWorldLoaded = client.WorldLoaded;
+            for (var attempt = 1; attempt <= TeleportRetryCount; attempt++)
+            {
+                if (!await Delay (client, TeleportRetrySeconds) || client.CurrentCharacter is not { } character)
+                {
+                    return;
+                }
+
+                if (lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt) && exitedAt > startedAt)
+                {
+                    return;
+                }
+
+                var worldJustLoaded = client.WorldLoaded && !sawWorldLoaded;
+                sawWorldLoaded = client.WorldLoaded;
+                if (IsInside (character) && !worldJustLoaded)
+                {
+                    continue;
+                }
+
+                SphLogger.Info ($"New player dungeon: re-sending the teleport (attempt {attempt}) for {character.Name}. " +
+                                $"Client ID: {character.ClientIndex:X4}");
+                Enter (client, replayCapturedObjects: true);
+            }
         }
         catch (Exception ex)
         {
@@ -180,10 +215,29 @@ public static class NewPlayerDungeon
     }
 
     /// <summary>
+    /// False once the client is gone
+    /// </summary>
+    private static async global::System.Threading.Tasks.Task<bool> Delay (SphereClient client, double seconds)
+    {
+        await client.ToSignal (client.GetTree ().CreateTimer (seconds), SceneTreeTimer.SignalName.Timeout);
+        return GodotObject.IsInstanceValid (client);
+    }
+
+    /// <summary>
     /// GM /npd entry; without the captured replay only the teleport, the geometry, the mob and the
     /// pedestal sword go out
     /// </summary>
-    public static async void Enter (SphereClient client, bool replayCapturedObjects)
+    public static void Enter (SphereClient client, bool replayCapturedObjects) =>
+        EnterAt (client, TeleportCoords, replayCapturedObjects);
+
+    /// <summary>
+    /// GM /npd x y z: a plain /tp inside the maze drops the client-built labyrinth, so the jump goes
+    /// through the dungeon entry, which sends the geometry again
+    /// </summary>
+    public static void EnterAt (SphereClient client, double worldX, double worldY, double worldZ) =>
+        EnterAt (client, new WorldCoords (worldX, -worldY, worldZ, TeleportCoords.turn), false);
+
+    private static async void EnterAt (SphereClient client, WorldCoords target, bool replayCapturedObjects)
     {
         try
         {
@@ -193,8 +247,8 @@ public static class NewPlayerDungeon
             }
 
             client.MaybeQueueNetworkPacketSend (
-                new CharacterDbEntrySerializer (character).GetNewPlayerDungeonTeleportAndUpdateStatsByteArray (TeleportCoords));
-            MoveToDungeon (character);
+                new CharacterDbEntrySerializer (character).GetNewPlayerDungeonTeleportAndUpdateStatsByteArray (target));
+            MoveToDungeon (character, target);
             client.SaveCharacter ();
 
             await client.ToSignal (client.GetTree ().CreateTimer (LoadDelaySeconds), SceneTreeTimer.SignalName.Timeout);
@@ -379,9 +433,26 @@ public static class NewPlayerDungeon
         }
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
-        if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius)
+        if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius
+            || lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt)
+            && (DateTime.UtcNow - exitedAt).TotalSeconds < ExitCooldownSeconds)
         {
             return;
+        }
+
+        lastExitAt[character.ClientIndex] = DateTime.UtcNow;
+        // Removing a tutomsg closes its window, which otherwise stays open after the exit
+        foreach (var id in tutorialEntityIds)
+        {
+            if (id != 0)
+            {
+                client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (client.GetLocalObjectId (id)));
+            }
+        }
+
+        if (exitTeleportEntityId != 0)
+        {
+            client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (client.GetLocalObjectId (exitTeleportEntityId)));
         }
 
         client.MaybeQueueNetworkPacketSend (new CharacterDbEntrySerializer (character).GetTeleportByteArray (ExitCoords));

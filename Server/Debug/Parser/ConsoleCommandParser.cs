@@ -84,6 +84,7 @@ public partial class ConsoleCommandParser
         RegisteredCommands["npd"] = EnterNewPlayerDungeon;
         RegisteredCommands["pos"] = ShowPosition;
         RegisteredCommands["cult"] = Cult;
+        RegisteredCommands["navcheck"] = NavCheck;
     }
 
     // A GM chat line when a client is attached, otherwise the server console
@@ -395,6 +396,15 @@ public partial class ConsoleCommandParser
         if (sphereClient is not { } client)
         {
             SendFeedback ("/npd: no client attached");
+            return;
+        }
+
+        var parts = args.Split (' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 3)
+        {
+            // Same coordinate form as /pos prints
+            var c = parts.Take (3).Select (x => double.Parse (x.Replace (',', '.'), CultureInfo.InvariantCulture)).ToArray ();
+            NewPlayerDungeon.EnterAt (client, c[0], c[1], c[2]);
             return;
         }
 
