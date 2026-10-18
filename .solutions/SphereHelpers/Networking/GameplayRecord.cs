@@ -54,20 +54,32 @@ public readonly struct GameplayRecord
     public const int SubjectTypeNpcTrade = 213;
     public const int SubjectTypeSackMobLoot = 407;
 
+    /// Item modules read an 8-bit ContMan command after the tag, where the player reads 4
+    private const int ObjectCommandBit = BodyBit + 53;
+
+    /// cmd 7 is an item's use; with 9 bytes (player u24, target u24, amount u24) it is a use on
+    /// another item, which is how _inv merges a stack dropped on a stack of the same item
+    public const int ObjectUseCommand = 7;
+    public const int ObjectUseOnTargetLength = 9;
+
+    public static int ReadObjectCommand (ReadOnlySpan<byte> decodedFrame) =>
+        (int) ReadBits (decodedFrame, ObjectCommandBit + ShiftOf (decodedFrame), 8);
+
+    public static int ReadObjectCommandLength (ReadOnlySpan<byte> decodedFrame) =>
+        (int) ReadBits (decodedFrame, ObjectCommandBit + 8 + ShiftOf (decodedFrame), 8);
+
+    /// After the command and its length byte
+    public static int ObjectPayloadBit (ReadOnlySpan<byte> decodedFrame) =>
+        ObjectCommandBit + 16 + ShiftOf (decodedFrame);
+
     // What the bag slot takes: ct_bag 400, ct_ubag 401, ct_sac_s 405, ct_sac_m 419, ct_gbag 426
     public static bool IsBackpackType (int subjectType) => subjectType is 400 or 401 or 405 or 419 or 426;
 
-    /// Backpack modules read an 8-bit ContMan command after the tag, where the player reads 4
-    public const int BackpackUseCommand = 7;
+    public const int BackpackUseCommand = ObjectUseCommand;
 
-    private const int CommandBit = BodyBit + 53;
+    public static int ReadBackpackCommand (ReadOnlySpan<byte> decodedFrame) => ReadObjectCommand (decodedFrame);
 
-    public static int ReadBackpackCommand (ReadOnlySpan<byte> decodedFrame) =>
-        (int) ReadBits (decodedFrame, CommandBit + ShiftOf (decodedFrame), 8);
-
-    /// After the command and its length byte
-    public static int BackpackPayloadBit (ReadOnlySpan<byte> decodedFrame) =>
-        CommandBit + 16 + ShiftOf (decodedFrame);
+    public static int BackpackPayloadBit (ReadOnlySpan<byte> decodedFrame) => ObjectPayloadBit (decodedFrame);
 
     private static int ShiftOf (ReadOnlySpan<byte> decodedFrame) =>
         ReadBits (decodedFrame, PositionFlagBit, 1) == 1 ? PositionBlockWidth : 0;
