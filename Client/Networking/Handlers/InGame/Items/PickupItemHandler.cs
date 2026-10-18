@@ -9,12 +9,13 @@ using SphServer.Shared.Db;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
+using SphServer.Shared.WorldState;
 using static SphServer.Shared.BitStream.SphBitStream;
 using static SphServer.Shared.Networking.DataModel.Serializers.SphereDbEntrySerializerBase;
 
 namespace SphServer.Client.Networking.Handlers.InGame.Items;
 
-public class PickupItemHandler (ushort localId, ClientConnection clientConnection)
+public class PickupItemHandler (ushort localId, ClientConnection clientConnection, SphereClient client)
     : ISphereClientNetworkingHandler
 {
     // 0x2E reply: object type at bit 74, the three position floats at bits 93/125/157
@@ -65,74 +66,63 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
     {
     }
 
+    /// <summary>
+    /// First payload bit after the action code and flag
+    /// </summary>
+    private const int PickupPayloadBit = 131;
+
+    /// <summary>
+    /// Double-click in an open sack. The item id offset in this frame is not pinned down by a
+    /// capture yet, so the payload is searched for an id that is in a sack, and the frame is
+    /// logged to confirm it
+    /// </summary>
     public async Task HandlePickupToNextAvailableEmptySlot (byte[] frame, double delta)
     {
-        // TODO: remove kaitai
-        // var packet = new PickupItemRequest(kaitaiStream);
-        // var clientItemID = (ushort) packet.ItemId;
-        // Console.WriteLine($"Pickup request: {clientItemID}");
-        //
-        // var itemId = GetGlobalObjectId(clientItemID);
-        //
-        // var item = DbConnectionProvider.ItemCollection.FindById(itemId);
-        // var parentId = item?.ParentContainerId;
-        // if (parentId is null)
-        // {
-        //     Console.WriteLine($"Item local [{clientItemID}] global [{itemId}] not found or has no parent container");
-        //     return;
-        // }
-        //
-        // var container = DbConnectionProvider.ItemContainerCollection.FindById(parentId);
-        //
-        // if (container is null)
-        // {
-        //     Console.WriteLine($"Container [{parentId}] not found");
-        //     return;
-        // }
-        //
-        // var slotId = container.Contents.First(x => x.Value == itemId).Key << 1;
-        // var packetObjectType = (int) item.ObjectType.GetPacketObjectType();
-        // var type_1 = (byte) ((packetObjectType & 0b111111) << 2);
-        // var type_2 = (byte) (0b11000000 + (packetObjectType >> 6));
-        //
-        // var targetSlot = CurrentCharacter.FindEmptyInventorySlot();
-        //
-        // var targetSlot_1 = (byte) (((int) targetSlot & 0b111111) << 2);
-        // var targetSlot_2 = (byte) ((((int) targetSlot >> 6) & 0b11) + ((clientItemID & 0b111111) << 2));
-        // var itemId_1 = (byte) ((clientItemID >> 6) & 0b11111111);
-        // var itemId_2 = (byte) ((clientItemID >> 14) & 0b11);
-        //
-        // var clientId_1 = (byte) ((ByteSwap(LocalId) & 0b1111111) << 1);
-        // var clientId_2 = (byte) ((ByteSwap(LocalId) >> 7) & 0b11111111);
-        // var clientId_3 = (byte) (((ByteSwap(LocalId) >> 15) & 0b1) + 0b00010000);
-        //
-        // var bagId_1 = (byte) ((ByteSwap(LocalId) & 0b111111) << 2);
-        // var bagId_2 = (byte) ((ByteSwap(LocalId) >> 6) & 0b11111111);
-        // var bagId_3 = (byte) ((ByteSwap(LocalId) >> 14) & 0b11);
-        //
-        // var pickupResult = new byte[]
-        // {
-        // 0x36, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, MinorByte((ushort) parentId),
-        // MajorByte((ushort) parentId), 0x5c,
-        // 0x46, 0x41, 0x02, (byte) slotId, 0x7e, MinorByte(clientItemID), MajorByte(clientItemID),
-        // type_1, type_2,
-        // 0x00, 0x80, 0x84, 0x2E, 0x09, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x02,
-        // 0x0C, bagId_1,
-        //     bagId_2,
-        // bagId_3, 0xFC, clientId_1, clientId_2, clientId_3, 0x80, 0x82, 0x20, targetSlot_1,
-        // targetSlot_2, itemId_1,
-        //     itemId_2, 0xC8, 0x00,
-        //     0x00, 0x00, 0x00
-        // };
-        //
-        // CurrentCharacter.Items[targetSlot.Value] = itemId;
-        //
-        // if (container.RemoveItemBySlotIdAndDestroyContainerIfEmpty(slotId >> 1))
-        // {
-        //     RemoveEntity(GetLocalObjectId(LocalId, container.Id));
-        // }
-        //
-        // StreamPeer.PutData(pickupResult);
+        SphLogger.Info ($"CLI: Pickup to free slot frame {Convert.ToHexString (frame)}. Client ID: {localId:X4}");
+
+        if (FindSackItemInPayload (frame) is not { } found)
+        {
+            SphLogger.Warning ($"Pickup to free slot: no sack item id in the frame. Client ID: {localId:X4}");
+            return;
+        }
+
+        var (item, bitOffset) = found;
+
+        if (client.PutItemInInventoryAndDeclare (item) is not { } slot)
+        {
+            SphLogger.Info ($"Pickup to free slot: inventory full. Client ID: {localId:X4}");
+            return;
+        }
+
+        SphLogger.Info (
+            $"CLI: Picked up {item.Localization.GetValueOrDefault (Locale.Russian, "?")} [{item.Id:X4}] " +
+            $"(id at bit {bitOffset}) into {Enum.GetName (slot)}. Client ID: {localId:X4}");
+        TakeOutOfLootBag (item);
+        clientConnection.SaveSelectedCharacter ();
+    }
+
+    private static (ItemDbEntry Item, int BitOffset)? FindSackItemInPayload (byte[] frame)
+    {
+        for (var bit = PickupPayloadBit; bit + 16 <= frame.Length * 8; bit++)
+        {
+            var stream = new BitStream (frame);
+            stream.SeekBitOffset (bit);
+            var candidate = (int) stream.ReadUInt16 (16);
+            if (candidate < WorldObjectIndex.FirstItemId)
+            {
+                continue;
+            }
+
+            var item = DbConnection.Items.FindById (candidate);
+            if (item?.ParentContainerId is { } containerId &&
+                DbConnection.ItemContainers.FindById (containerId) is { } container &&
+                container.Contents.ContainsValue (candidate))
+            {
+                return (item, bit);
+            }
+        }
+
+        return null;
     }
 
     public async Task HandlePickupToTargetSlot (byte[] frame, double delta)
