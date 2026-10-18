@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using BitStreams;
 using Godot;
 using SphereHelpers.Extensions;
+using SphServer.Client.Networking.Handlers.InGame.Items;
 using SphServer.Helpers.Networking;
 using SphServer.Shared.BitStream;
 using SphServer.Shared.Db;
@@ -103,7 +104,17 @@ public class DamageTargetHandler (ushort localId, ClientConnection clientConnect
             clientConnection.EnqueueClientEvent (new CombatHitEvent (
                 broadcastTargetGlobalId, targetGlobalId, targetLocalId, frameKind));
         }
+
+        // The client only sends cuse and never lowers its own amount; one powder per use, not per AoE target
+        if (IsPowder (heldItem) && targets.Count > 0)
+        {
+            ItemConsumption.ConsumeOne (broadcastTarget, heldItem);
+        }
     }
+
+    private static bool IsPowder (ItemDbEntry item) =>
+        item.GameObjectType is GameObjectType.Powder or GameObjectType.Powder_Area or GameObjectType.Powder_Event
+            or GameObjectType.Powder_Guild;
 
     /// <summary>
     /// Live client id, WorldObject.ID, or the byte-swapped client id on self-aimed AoE
