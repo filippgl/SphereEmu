@@ -7,7 +7,6 @@ using SphServer.Shared.Db;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
-using SphServer.Shared.WorldState;
 using static SphServer.Shared.BitStream.SphBitStream;
 using static SphServer.Shared.Networking.DataModel.Serializers.SphereDbEntrySerializerBase;
 
@@ -312,19 +311,14 @@ public static class Backpack
     private static bool IsSplit (ItemDbEntry item, int count) => count > 0 && count < item.ItemCount;
 
     /// <summary>
-    /// The moved part of a stack becomes an item of its own; the source keeps the rest
+    /// The clone shares the source's cell link, which the caller sets for the part's own place
     /// </summary>
     private static ItemDbEntry SplitOff (ItemDbEntry item, int count)
     {
-        var part = ItemDbEntry.Clone (item, insertIntoItemCollection: false);
-        part.Id = WorldObjectIndex.NewItem ();
-        part.ItemCount = count;
+        var part = item.SplitOff (count);
         part.ParentBackpackId = null;
         part.BackpackContents = new ();
-        DbConnection.Items.Insert (part.Id, part);
-
-        item.ItemCount -= count;
-        DbConnection.Items.Update (item);
+        DbConnection.Items.Update (part);
         return part;
     }
 
