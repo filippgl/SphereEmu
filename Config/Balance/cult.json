@@ -11,8 +11,9 @@
     "member_rank": "Neophyte",
 
     // recovered (2004 forum: "респ на Тантале"; player memory: at a tower). World x, y, z, turn;
-    // null keeps the nearest city. /cult here stores a point in the DB, which wins over this.
-    "respawn": null,
+    // a paved street inside the hrt_* town (hrt_tgate1 gate at -1994, -98, 435); null keeps the
+    // nearest city. /cult here stores a point in the DB, which wins over this.
+    "respawn": [-1966, -103.9, 460, 0],
 
     // recovered (Игромания 2004: members became crater dwarves; client turnskin.cfg SK01 = npc80):
     // turnskin number given on joining, sent as specab byte 2. 0 gives none.
