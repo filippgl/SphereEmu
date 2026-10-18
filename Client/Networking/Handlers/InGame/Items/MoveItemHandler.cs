@@ -146,5 +146,11 @@ public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
         {
             clientConnection.MaybeScheduleNetworkPacketSend (moveResult);
         }
+
+        // The window opens from the cells it already has, so they go out as soon as the bag is worn
+        if (!returnToOldSlot && targetSlot == BelongingSlot.Backpack && Backpack.IsBackpack (item))
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (Backpack.BuildCellsPacket (item));
+        }
     }
 }

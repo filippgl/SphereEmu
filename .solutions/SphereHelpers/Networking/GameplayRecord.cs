@@ -54,6 +54,24 @@ public readonly struct GameplayRecord
     public const int SubjectTypeNpcTrade = 213;
     public const int SubjectTypeSackMobLoot = 407;
 
+    // What the bag slot takes: ct_bag 400, ct_ubag 401, ct_sac_s 405, ct_sac_m 419, ct_gbag 426
+    public static bool IsBackpackType (int subjectType) => subjectType is 400 or 401 or 405 or 419 or 426;
+
+    /// Backpack modules read an 8-bit ContMan command after the tag, where the player reads 4
+    public const int BackpackUseCommand = 7;
+
+    private const int CommandBit = BodyBit + 53;
+
+    public static int ReadBackpackCommand (ReadOnlySpan<byte> decodedFrame) =>
+        (int) ReadBits (decodedFrame, CommandBit + ShiftOf (decodedFrame), 8);
+
+    /// After the command and its length byte
+    public static int BackpackPayloadBit (ReadOnlySpan<byte> decodedFrame) =>
+        CommandBit + 16 + ShiftOf (decodedFrame);
+
+    private static int ShiftOf (ReadOnlySpan<byte> decodedFrame) =>
+        ReadBits (decodedFrame, PositionFlagBit, 1) == 1 ? PositionBlockWidth : 0;
+
     /// Attack target at bit 172; an interaction frame holds the player's own record here
     public const int TargetIdBit = 172;
 
