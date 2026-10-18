@@ -326,6 +326,7 @@ public partial class ConsoleCommandParser
         int samples = 0, offMesh = 0, jumps = 0, depthFlips = 0;
         var worst = string.Empty;
         var worstDeviation = 0f;
+        var travelled = new Dictionary<ulong, float> ();
         var end = Time.GetTicksMsec () + (ulong) (seconds * 1000f);
         while (Time.GetTicksMsec () < end)
         {
@@ -333,6 +334,13 @@ public partial class ConsoleCommandParser
             if (sphereClient is null || !ClientWorldPosition.TryGetGodotWorldPosition (sphereClient, out var player))
             {
                 break;
+            }
+
+            // The off-mesh check must see the tiles the mobs walk on, not only what FindPath loaded
+            if (TerrainNavMeshRuntime.EnsureTilesLoaded (sphereClient, player, MobWatchRadiusMeters))
+            {
+                await TerrainNavMeshRuntime.SyncAsync (tree);
+                continue;
             }
 
             var monsters = new List<Monster> ();
@@ -348,10 +356,11 @@ public partial class ConsoleCommandParser
                 }
 
                 var moving = monster.NavMode != MonsterNavMode.Idle;
-                if (last.TryGetValue (id, out var prev) && moving)
+                if (last.TryGetValue (id, out var prev) && moving && prev.DistanceTo (pos) > 0.3f)
                 {
                     watched.Add (id);
                     samples++;
+                    travelled[id] = travelled.GetValueOrDefault (id) + Horizontal (prev, pos);
                     if (prev.DistanceTo (pos) > MobWatchJumpMeters)
                     {
                         jumps++;
@@ -381,7 +390,8 @@ public partial class ConsoleCommandParser
             }
         }
 
-        SendFeedback ($"/mobwatch: {watched.Count} moving mob(s), {samples} sample(s); off navmesh {offMesh}, " +
+        var walked = string.Join (", ", travelled.Values.OrderByDescending (x => x).Take (5).Select (x => $"{x:F0}m"));
+        SendFeedback ($"/mobwatch: {watched.Count} moving mob(s) walked {walked}; {samples} moving sample(s); off navmesh {offMesh}, " +
                       $"jumps>{MobWatchJumpMeters:F0}m {jumps}, surface/dungeon flips {depthFlips}" +
                       (worst.Length > 0 ? $"; worst {worstDeviation:F1}m: {worst}" : string.Empty));
     }
