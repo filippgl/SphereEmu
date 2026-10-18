@@ -33,10 +33,25 @@ public partial class ConsoleCommandParser
         Callable.From (() => RunNavCheck (center, radius, samples, diag)).CallDeferred ();
     }
 
-    private void RunNavCheck (Vector3 center, float radius, int samples, bool diag)
+    private async void RunNavCheck (Vector3 center, float radius, int samples, bool diag)
     {
         var spawners = new List<MonsterSpawner> ();
         CollectSpawners (SphereServer.ServerNode, spawners);
+        spawners.RemoveAll (x => Horizontal (x.LeashCenterWorld, center) > radius);
+
+        // New regions only answer queries after the navigation server syncs at frame end
+        foreach (var spawner in spawners)
+        {
+            TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, spawner.LeashCenterWorld, spawner.LeashRadiusMeters + 8f);
+        }
+
+        var tree = SphereServer.ServerNode.GetTree ();
+        await TerrainNavMeshRuntime.SyncAsync (tree);
+        for (var i = 0; i < 3; i++)
+        {
+            await SphereServer.ServerNode.ToSignal (tree, SceneTree.SignalName.PhysicsFrame);
+        }
+
         if (diag)
         {
             DiagnoseNearestSpawner (center, spawners);
@@ -50,19 +65,8 @@ public partial class ConsoleCommandParser
         foreach (var spawner in spawners)
         {
             var leashCenter = spawner.LeashCenterWorld;
-            var dx = leashCenter.X - center.X;
-            var dz = leashCenter.Z - center.Z;
-            if (dx * dx + dz * dz > radius * radius)
-            {
-                continue;
-            }
-
             checkedSpawners++;
             var leash = spawner.LeashRadiusMeters;
-
-            // FindPath loads tiles itself, but the sample points are picked before it runs
-            TerrainNavMeshRuntime.EnsureTilesLoaded (spawner, leashCenter, leash + 8f);
-            TerrainNavMeshRuntime.TrySyncImmediate ();
             for (var i = 0; i < samples; i++)
             {
                 if (!TrySampleNavPoint (rng, leashCenter, leash, out var start) ||
@@ -139,6 +143,8 @@ public partial class ConsoleCommandParser
                       $"closest={closest} {cp}; onNav={onNav} {snap}; below={below} {ground}; " +
                       $"path={path.Reason} n={path.Waypoints.Count}");
     }
+
+    private static float Horizontal (Vector3 a, Vector3 b) => new Vector2 (a.X - b.X, a.Z - b.Z).Length ();
 
     private static void CollectSpawners (Node node, List<MonsterSpawner> spawners)
     {
