@@ -707,7 +707,7 @@ public partial class SphereClient : WorldObject
 	/// <summary>
 	/// Nearest Hyperion city by center; karma respawn point when recorded, else the city center
 	/// </summary>
-	private static (Cities City, WorldCoords Coords) FindRespawnPoint (CharacterDbEntry character)
+	internal static (Cities City, WorldCoords Coords) FindRespawnPoint (CharacterDbEntry character)
 	{
 		var centers = SavedCoords.TeleportPoints[Continents.Гиперион][PoiType.CityCenter];
 		var worldX = character.X;
