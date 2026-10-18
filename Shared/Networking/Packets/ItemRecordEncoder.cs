@@ -53,6 +53,13 @@ public static class ItemRecordEncoder
     public static byte[] Encode (ItemDbEntry item, ushort containerObjectId,
         float x = ContainedX, float y = 0f, float z = 0f)
     {
+        if (item.WireObjectType == ObjectType.Token_Tutorial_Torweal)
+        {
+            var token = CommonPackets.BuildContManSpawn ((ushort) item.Id, item.WireObjectType,
+                x, y, z, 15, [0x0B, 0x07, 0, 1]);
+            return Concat (token, EncodePutInto (item, containerObjectId));
+        }
+
         var record = Encode ((ushort) item.Id, (int) item.WireObjectType, item.GameId, SuffixWireFor (item),
             containerObjectId, x, y, z, item.CurrentDurability, item.Durability, item.GameObjectType);
         return IsGuildFamily ((ObjectType) item.WireObjectType) ? record : Concat (record, EncodeCount (item));
@@ -110,6 +117,12 @@ public static class ItemRecordEncoder
     /// </summary>
     public static byte[] EncodeOnGround (ItemDbEntry item, float x, float y, float z, byte angle)
     {
+        if (item.WireObjectType == ObjectType.Token_Tutorial_Torweal)
+        {
+            return CommonPackets.BuildContManSpawn ((ushort) item.Id, item.WireObjectType,
+                x, y, z, 15, [0x0B, 0x07, 0, 1]);
+        }
+
         var stream = GetWriteBitStream ();
         WriteItemHeader (stream, (ushort) item.Id, (int) item.WireObjectType);
         WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (x));
@@ -121,11 +134,7 @@ public static class ItemRecordEncoder
         stream.WriteUInt16 ((ushort) (item.GameId & 0x3FFF), 14);
         WriteSuffix (stream, SuffixWireFor (item));
 
-        stream.WriteByte ((byte) FollowOnRecord, 7);
-        stream.WriteByte ((byte) PropertiesMessage, 8);
-        stream.WriteByte (5, 8);
-        stream.WriteByte (0, 8);
-        WriteUInt32Full (stream, uint.MaxValue);
+        WriteOwnershipProperties (stream, (int) item.WireObjectType, 8);
 
         stream.WriteByte ((byte) FollowOnRecord, 7);
         stream.WriteByte ((byte) CountMessage, 8);
@@ -271,13 +280,7 @@ public static class ItemRecordEncoder
         stream.WriteByte (3, 8);
         stream.WriteUInt32 (containerObjectId, 24);
 
-        // Property 0 stays -1: any other value that is not the player's id is a second refusal,
-        // apart from the parent check
-        stream.WriteByte ((byte) FollowOnRecord, 7);
-        stream.WriteByte ((byte) PropertiesMessage, messageTypeBits);
-        stream.WriteByte (5, 8);
-        stream.WriteByte (0, 8);
-        WriteUInt32Full (stream, uint.MaxValue);
+        WriteOwnershipProperties (stream, objectType, messageTypeBits);
 
         if (count is { } itemCount)
         {
@@ -293,6 +296,24 @@ public static class ItemRecordEncoder
             stream.WriteByte (0, 7);
         }
         return Packet.ToByteArray (stream.GetStreamData (), 3);
+    }
+
+    private static void WriteOwnershipProperties (SphWriteStream stream, int objectType, int messageTypeBits)
+    {
+        // These modules read command 9 as weight; the ownership payload becomes -256
+        if ((ObjectType) objectType is ObjectType.Mantra_White or ObjectType.Mantra_Black
+            or ObjectType.Sack or ObjectType.Recipe_Book or ObjectType.Mantra_Book_Large
+            or ObjectType.Mantra_Book_Great or ObjectType.Blueprint or ObjectType.Alchemy_Furnace
+            or ObjectType.Mutator)
+        {
+            return;
+        }
+
+        stream.WriteByte ((byte) FollowOnRecord, 7);
+        stream.WriteByte ((byte) PropertiesMessage, messageTypeBits);
+        stream.WriteByte (5, 8);
+        stream.WriteByte (0, 8);
+        WriteUInt32Full (stream, uint.MaxValue);
     }
 
     /// <summary>
@@ -420,7 +441,9 @@ public static class ItemRecordEncoder
             combined = Concat (combined, BuildGuildSetParent (entityId, moduleTag, containerObjectId));
         }
 
-        return Concat (combined, BuildGuildProperty0None (entityId, moduleTag));
+        return moduleTag == (ushort) ObjectType.Invisibility
+            ? combined
+            : Concat (combined, BuildGuildProperty0None (entityId, moduleTag));
     }
 
     private static byte[] BuildGuildSpawnSnapshot (ushort entityId, ushort moduleTag,
@@ -443,6 +466,7 @@ public static class ItemRecordEncoder
         CommonPackets.WriteMbcVarint (stream, maxDurability);
         CommonPackets.WriteMbcVarint (stream, gameId);
         CommonPackets.WriteMbcVarint (stream, suffixId);
+        stream.WriteByte (0, 7);
         return Packet.ToByteArray (stream.GetStreamData (), 1);
     }
 
@@ -482,6 +506,7 @@ public static class ItemRecordEncoder
             stream.WriteByte (b, 8);
         }
 
+        stream.WriteByte (0, 7);
         return Packet.ToByteArray (stream.GetStreamData (), 1);
     }
 

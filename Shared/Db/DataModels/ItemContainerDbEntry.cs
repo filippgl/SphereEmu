@@ -230,19 +230,18 @@ public class ItemContainerDbEntry
     }
 
     /// <summary>
-    /// The list frame, then one record per item parented to the sack
+    /// Item processes must exist before the sack's cells bind to them
     /// </summary>
     public List<byte[]> GetContentsPackets ()
     {
         var items = GetItems ();
-        var packets = new List<byte[]> ();
+        var packets = items.Select (x => ItemRecordEncoder.EncodeInLootBag (x, (ushort) Id)).ToList ();
         var itemList = BuildItemListPacket (items);
         if (itemList is not null)
         {
             packets.Add (itemList);
         }
 
-        packets.AddRange (items.Select (x => ItemRecordEncoder.EncodeInLootBag (x, (ushort) Id)));
         return packets;
     }
 
@@ -273,7 +272,7 @@ public class ItemContainerDbEntry
             .ToList ();
 
     /// <summary>
-    /// Constant lead after the record header in every live list frame
+    /// Region 4 carries the sack's slot updates
     /// </summary>
     private const byte FollowOnMarker = 5;
     private const byte LockMessage = 3;
@@ -299,13 +298,22 @@ public class ItemContainerDbEntry
         WriteMessageHeader (stream, LockMessage, 1);
         stream.WriteByte (0, 8);
 
-        for (var slot = 0; slot < items.Count && slot < MaxItems; slot++)
+        var itemsById = items.ToDictionary (x => x.Id);
+        for (var slot = 0; slot < MaxItems; slot++)
         {
+            if (!Contents.TryGetValue (slot, out var itemId) || !itemsById.TryGetValue (itemId, out var item))
+            {
+                WriteMessageHeader (stream, SlotMessage, 1);
+                stream.WriteByte ((byte) slot, 8);
+                continue;
+            }
+
             WriteMessageHeader (stream, SlotMessage, 8);
             stream.WriteByte ((byte) slot, 8);
-            stream.WriteUInt16 ((ushort) items[slot].Id, 16);
-            stream.WriteByte ((byte) (items[slot].Id >> 16), 8);
-            var weight = (uint) global::System.Math.Max (1, items[slot].Weight);
+            stream.WriteUInt16 ((ushort) item.Id, 16);
+            stream.WriteByte ((byte) (item.Id >> 16), 8);
+            var weight = (uint) global::System.Math.Clamp (
+                (long) item.Weight * global::System.Math.Max (1, item.ItemCount), 0, int.MaxValue);
             stream.WriteUInt16 ((ushort) weight, 16);
             stream.WriteUInt16 ((ushort) (weight >> 16), 16);
         }

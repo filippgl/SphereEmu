@@ -19,50 +19,6 @@ namespace SphServer.Client.Networking.Handlers.InGame.Items;
 public class PickupItemHandler (ushort localId, ClientConnection clientConnection, SphereClient client)
     : ISphereClientNetworkingHandler
 {
-    // 0x2E reply: object type at bit 74, the three position floats at bits 93/125/157
-    private const int ObjectTypeBitOffset = 74;
-    private const int PositionBitOffset = 93;
-
-    private static uint FloatBits (double value)
-    {
-        return BitConverter.SingleToUInt32Bits ((float) value);
-    }
-
-    // LSB-first, and bits outside the field stay put because the fields share bytes
-    public static byte[] BuildPickupMoveResult (int clientItemID, ushort clientSyncOther, byte clientSync1,
-        byte clientSync2, byte clientSlotRaw, int objectType, double x, double y, double z)
-    {
-        var serverItemID_1 = (clientItemID & 0b111111) << 2;
-        var serverItemID_2 = (clientItemID & 0b11111111000000) >> 6;
-        var serverItemID_3 = (clientItemID & 0b1100000000000000) >> 14;
-
-        var moveResult = new byte[]
-        {
-            0x2E, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, MinorByte ((ushort) clientItemID),
-            MajorByte ((ushort) clientItemID), 0xE8, 0xC7, 0xA0, 0xB0, 0x6E, 0xA6, 0x88, 0x98, 0x95, 0xB1, 0x28, 0x09,
-            0xDC, 0x85, 0xC8, 0xDF, 0x02, 0x0C, MinorByte (clientSyncOther), MajorByte (clientSyncOther), 0x01, 0xFC,
-            clientSync1, clientSync2, 0x10, 0x80, 0x82, 0x20, (byte) (clientSlotRaw << 1), (byte) serverItemID_1,
-            (byte) serverItemID_2, (byte) serverItemID_3, 0x20, 0x4E, 0x00, 0x00, 0x00
-        };
-
-        // The template is one captured item, so type and position are overwritten in place
-        var stream = new BitStream (moveResult);
-        stream.SeekBitOffset (ObjectTypeBitOffset);
-        stream.WriteUInt16 ((ushort) objectType, 12);
-        stream.SeekBitOffset (PositionBitOffset);
-        WriteFloatBits (stream, x);
-        WriteFloatBits (stream, -y);
-        WriteFloatBits (stream, -z);
-        return stream.GetStreamData ();
-    }
-
-    private static void WriteFloatBits (BitStream stream, double value)
-    {
-        var bits = FloatBits (value);
-        stream.WriteUInt16 ((ushort) bits, 16);
-        stream.WriteUInt16 ((ushort) (bits >> 16), 16);
-    }
-
     public async Task Handle (byte[] frame, double delta)
     {
     }
@@ -94,6 +50,13 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
         stream.SeekBitOffset (PickupItemIdBit);
         var itemId = (int) stream.ReadUInt16 (16);
         var item = DbConnection.Items.FindById (itemId);
+        if (item?.DroppedOnGroundBy is not null)
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
+            PickUpFromGround (client, clientConnection, item);
+            return;
+        }
+
         var container = item?.ParentContainerId is { } containerId
             ? DbConnection.ItemContainers.FindById (containerId)
             : null;
@@ -180,18 +143,28 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
 
         var clientSlot_raw = frame[24];
         var targetSlotId = clientSlot_raw >> 1;
-        var targetSlot = Enum.IsDefined (typeof (BelongingSlot), targetSlotId)
-            ? (BelongingSlot) targetSlotId
-            : BelongingSlot.Unknown;
+        var targetSlot = ItemSlotReserve.SlotForWireId (targetSlotId) ?? BelongingSlot.Unknown;
 
         if (item.DroppedOnGroundBy is not null)
         {
+            clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
             PickUpFromGround (client, clientConnection, item, targetSlot);
             return;
         }
 
+        var container = item.ParentContainerId is { } containerId
+            ? DbConnection.ItemContainers.FindById (containerId)
+            : null;
+        var sackSlot = container?.Contents.FirstOrDefault (x => x.Value == item.Id);
+        if (container is null || sackSlot?.Value != item.Id)
+        {
+            SphLogger.Warning ($"Pickup to slot: item {item.Id:X4} is not in a sack. Client ID: {localId:X4}");
+            return;
+        }
+
         // Requirements gate wearing, not carrying: anything may sit in a cell.
-        if (targetSlot is BelongingSlot.Unknown || !item.IsValidForSlot (targetSlot) ||
+        if (targetSlot is BelongingSlot.Unknown || !character.IsItemSlotEmpty (targetSlot) ||
+            !item.IsValidForSlot (targetSlot) ||
             (!ItemDbEntry.IsInventorySlot (targetSlot) && !character.CanUseItem (item)))
         {
             SphLogger.Info (
@@ -203,31 +176,18 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
             $"CLI: Move item {item.Localization[Locale.Russian]} ({item.ItemCount}) [{clientItemID}] " +
             $"to slot raw [{clientSlot_raw}] [{Enum.GetName (targetSlot)}]");
 
-        var clientSync_1 = frame[17];
-        var clientSync_2 = frame[18];
-
-        var clientSyncOther_1 = (frame[10] & 0b11000000) >> 4;
-        var clientSyncOther_2 = frame[11];
-        var clientSyncOther_3 = frame[12] & 0b111111;
-        var clientSyncOther = (ushort) ((clientSyncOther_3 << 10) + (clientSyncOther_2 << 2) + clientSyncOther_1);
-
-        var moveResult = BuildPickupMoveResult (clientItemID, clientSyncOther, clientSync_1, clientSync_2,
-            clientSlot_raw, (int) item.ObjectType, item.X, item.Y, item.Z);
-
         character.PlaceItemInSlot (targetSlot, globalItemId);
         SphLogger.Info ($"{Enum.GetName ((BelongingSlot) targetSlotId)} now has " +
                        $"{item.Localization.GetValueOrDefault (Locale.Russian, "?")} " +
                        $"({item.ItemCount}) [{globalItemId}]");
-        clientConnection.MaybeScheduleNetworkPacketSend (moveResult);
+        clientConnection.MaybeScheduleNetworkPacketSend (container.BuildClearSlotPacket (sackSlot.Value.Key));
+        clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodePutInto (item, ByteSwap (localId)));
 
-        // The grant above does not fill the slot array, so the cell stays empty without these.
         var reserve = ItemSlotReserve.Build (localId, targetSlot, item.Id, item.ItemCount);
         if (reserve is not null)
         {
             clientConnection.MaybeScheduleNetworkPacketSend (reserve);
         }
-
-        clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.Encode (item, ByteSwap (localId)));
 
         TakeOutOfLootBag (item);
         TakeOffTheGround (item);

@@ -81,34 +81,30 @@ public partial class LootBag : WorldObject
             return;
         }
 
-        client.MaybeQueueNetworkPacketSend (BuildLiveSpawn (client.GetLocalObjectId (ID)));
+        var origin = GlobalTransform.Origin;
+        client.MaybeQueueNetworkPacketSend (BuildLiveSpawn (client.GetLocalObjectId (ID),
+            origin.X, -origin.Y, -origin.Z, (byte) Angle));
 
         // This client opens the sack window locally, often without an open request, and shows
         // only what it already holds; items first, so the slot ids resolve when the list lands
-        foreach (var packet in Container.GetItemRecordPackets ())
+        foreach (var packet in Container.GetContentsPackets ())
         {
             client.MaybeQueueNetworkPacketSend (packet);
         }
-
-        if (Container.GetListPacket () is { } list)
-        {
-            client.MaybeQueueNetworkPacketSend (list);
-        }
     }
 
-    private byte[] BuildLiveSpawn (ushort entityId)
+    internal static byte[] BuildLiveSpawn (ushort entityId, float x, float y, float z, byte angle)
     {
-        var origin = GlobalTransform.Origin;
         var stream = SphBitStream.GetWriteBitStream ();
         stream.WriteUInt16 (entityId, 16);
         stream.WriteByte (0, 2);
         stream.WriteUInt16 ((ushort) ObjectType.Sack_Mob_Loot, 10);
         stream.WriteByte (0, 1);
         stream.WriteByte (0x7C, 8);
-        WriteFloat (stream, origin.X);
-        WriteFloat (stream, -origin.Y);
-        WriteFloat (stream, -origin.Z);
-        stream.WriteByte ((byte) Angle, 8);
+        WriteFloat (stream, x);
+        WriteFloat (stream, y);
+        WriteFloat (stream, z);
+        stream.WriteByte (angle, 8);
 
         var written = 16 + 2 + 10 + 1 + 8 + 3 * 32 + 8;
         foreach (var bit in LiveSpawnTail)
@@ -122,6 +118,7 @@ public partial class LootBag : WorldObject
             stream.WriteByte (0, 1);
         }
 
+        stream.WriteByte (0, 7);
         return Packet.ToByteArray (stream.GetStreamData (), 3);
     }
 

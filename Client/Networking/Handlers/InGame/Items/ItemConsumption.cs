@@ -22,10 +22,12 @@ public static class ItemConsumption
     public static void ConsumeOne (SphereClient client, ItemDbEntry item)
     {
         var character = client.CurrentCharacter;
-        if (character is null)
+        if (character is null || !character.Items.ContainsValue (item.Id) ||
+            DbConnection.Items.FindById (item.Id) is not { } storedItem)
         {
             return;
         }
+        item = storedItem;
 
         var name = item.Localization.GetValueOrDefault (Locale.Russian, "?");
         var cell = character.Items.Where (x => x.Value == item.Id && x.Key != BelongingSlot.MainHand)

@@ -35,7 +35,7 @@ public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
     {
         var stream = new BitStreams.BitStream (frame);
         stream.ReadBits (LeftCellBitOffset);
-        var slot = (BelongingSlot) stream.ReadByte (8);
+        var slot = ItemSlotReserve.SlotForWireId (stream.ReadByte (8)) ?? BelongingSlot.Unknown;
         var character = clientConnection.GetSelectedCharacter ();
         if (character is null || !character.Items.TryGetValue (slot, out var itemId))
         {
@@ -64,12 +64,6 @@ public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
 
     public async Task Handle (byte[] frame, double delta)
     {
-        // ideally we'd support swapping items but client simply doesn't send anything if slot is
-        // occupied
-        // var clientID_1 = ReceiveBuffer[11];
-        // var clientID_2 = ReceiveBuffer[12];
-        var newSlotRaw = frame[21];
-        var oldSlotRaw = frame[22];
         var oldSlotId = frame[22] >> 1;
         var newSlotId = frame[21] >> 1;
 
@@ -77,12 +71,8 @@ public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
         SphLogger.Info (
             $"Move to another slot request: from [{Enum.GetName (typeof (BelongingSlot), oldSlotId)}] " +
             $"to [{Enum.GetName (typeof (BelongingSlot), newSlotId)}]");
-        var targetSlot = Enum.IsDefined (typeof (BelongingSlot), newSlotId)
-            ? (BelongingSlot) newSlotId
-            : BelongingSlot.Unknown;
-        var oldSlot = Enum.IsDefined (typeof (BelongingSlot), oldSlotId)
-            ? (BelongingSlot) oldSlotId
-            : BelongingSlot.Unknown;
+        var targetSlot = ItemSlotReserve.SlotForWireId (newSlotId) ?? BelongingSlot.Unknown;
+        var oldSlot = ItemSlotReserve.SlotForWireId (oldSlotId) ?? BelongingSlot.Unknown;
 
         var returnToOldSlot = false;
 
@@ -105,7 +95,9 @@ public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
         }
 
         // Requirements gate wearing, not carrying: anything may sit in a cell.
-        if (!item.IsValidForSlot (targetSlot) ||
+        if (targetSlot == BelongingSlot.Unknown ||
+            (targetSlot != oldSlot && !character.IsItemSlotEmpty (targetSlot)) ||
+            !item.IsValidForSlot (targetSlot) ||
             (!ItemDbEntry.IsInventorySlot (targetSlot) && !character.CanUseItem (item)))
         {
             SphLogger.Warning ($"Item [{globalOldItemId}] couldn't be used in slot [{Enum.GetName (targetSlot)}]");
@@ -121,28 +113,12 @@ public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
             }
         }
 
-        if (returnToOldSlot)
-        {
-            newSlotRaw = oldSlotRaw;
-        }
-
         SphLogger.Info ($"Item found: {globalOldItemId}");
-        var newSlot_1 = (byte) ((newSlotRaw & 0b11111) << 3);
-        var newSlot_2 = (byte) (((globalOldItemId & 0b1111) << 4) + (newSlotRaw >> 5));
-        var oldItem_1 = (byte) ((globalOldItemId >> 4) & 0b11111111);
-        var oldItem_2 = (byte) (globalOldItemId >> 12);
-
-        var moveResult = new byte[]
-        {
-            0x20, 0x00, 0x2C, 0x01, 0x00, 0x00, 0x00, MajorByte (localId), MinorByte (localId), 0x08, 0x40, 0x41, 0x10,
-            oldSlotRaw, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x0A, 0x82, newSlot_1, newSlot_2, oldItem_1,
-            oldItem_2, 0xC0, 0x44, 0x00, 0x00, 0x00
-        };
         if (!returnToOldSlot)
         {
             var lookBefore = CharacterWornLook.Capture (character);
-            character.Items[targetSlot] = globalOldItemId;
             character.Items.Remove (oldSlot);
+            character.Items[targetSlot] = globalOldItemId;
             if (oldSlot == BelongingSlot.Guild || targetSlot == BelongingSlot.Guild)
             {
                 character.SyncGuildFromWornEmblem ();
@@ -163,6 +139,12 @@ public class MoveItemHandler (ushort localId, ClientConnection clientConnection)
             }
         }
 
-        clientConnection.MaybeScheduleNetworkPacketSend (moveResult);
+        var moveResult = returnToOldSlot
+            ? ItemSlotReserve.Build (localId, oldSlot, item.Id, item.ItemCount)
+            : ItemSlotReserve.BuildMove (localId, oldSlot, targetSlot, item.Id, item.ItemCount);
+        if (moveResult is not null)
+        {
+            clientConnection.MaybeScheduleNetworkPacketSend (moveResult);
+        }
     }
 }
