@@ -64,7 +64,7 @@ public partial class ConsoleCommandParser
         var reasons = new Dictionary<NavPathFailReason, int> ();
         int rawPaths = 0, rawBad = 0, acceptedBad = 0, accepted = 0, unsampled = 0;
         double guardedMs = 0, guardedMaxMs = 0, rawMs = 0, rawMaxMs = 0;
-        int guardedCalls = 0, rawCalls = 0;
+        int guardedCalls = 0, rawCalls = 0, rejectedShown = 0;
         var watch = new global::System.Diagnostics.Stopwatch ();
 
         foreach (var spawner in spawners)
@@ -98,6 +98,14 @@ public partial class ConsoleCommandParser
                     rawMs += rawSpent;
                     rawMaxMs = Math.Max (rawMaxMs, rawSpent);
                     rawCalls++;
+                    if (raw.Length > 0 && result.Reason == NavPathFailReason.PathRejected && rejectedShown < 10)
+                    {
+                        rejectedShown++;
+                        SendFeedback ($"/navcheck rejected: {spawner.Name} r={leash}: " +
+                                      ExplainRejection (raw, rawStart, rawGoal, leashCenter, leash) + "; " +
+                                      DescribePath (raw, leashCenter));
+                    }
+
                     if (raw.Length > 0)
                     {
                         rawPaths++;
@@ -178,6 +186,49 @@ public partial class ConsoleCommandParser
     }
 
     private static float Horizontal (Vector3 a, Vector3 b) => new Vector2 (a.X - b.X, a.Z - b.Z).Length ();
+
+    // Mirrors NavPathQuery's guards (leash +2m, rise above max(1.5m, run), length over 3x+15m) to
+    // name which one fired; the constants are copied, so keep them in step
+    private static string ExplainRejection (Vector3[] path, Vector3 start, Vector3 goal, Vector3 leashCenter,
+        float leash)
+    {
+        if (IndoorAreaCriteria.IsIndoorDepth (start.Y) != IndoorAreaCriteria.IsIndoorDepth (goal.Y))
+        {
+            return "surface/dungeon mismatch";
+        }
+
+        var reasons = new List<string> ();
+        var previous = start;
+        var length = 0f;
+        foreach (var point in path)
+        {
+            var out_ = Horizontal (point, leashCenter) - leash;
+            if (out_ > 2f)
+            {
+                reasons.Add ($"leaves leash by {out_:F0}m");
+                break;
+            }
+
+            var run = Horizontal (point, previous);
+            var rise = Mathf.Abs (point.Y - previous.Y);
+            if (rise > Mathf.Max (1.5f, run))
+            {
+                reasons.Add ($"rise {rise:F1}m over {run:F1}m at {point}");
+                break;
+            }
+
+            length += previous.DistanceTo (point);
+            previous = point;
+        }
+
+        var straight = start.DistanceTo (goal);
+        if (length > straight * 3f + 15f)
+        {
+            reasons.Add ($"detour {length:F0}m vs straight {straight:F0}m");
+        }
+
+        return reasons.Count > 0 ? string.Join (", ", reasons) : "start/goal snap";
+    }
 
     private static string DescribePath (Vector3[] path, Vector3 leashCenter)
     {
