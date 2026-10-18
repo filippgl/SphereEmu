@@ -163,7 +163,10 @@ public static class NewPlayerDungeon
     private static readonly Dictionary<ushort, DateTime> lastInsideReportAt = [];
     private static ushort labyrinthEntityId;
     private static ushort starterSwordEntityId;
-    private static Monster? dungeonMob;
+    /// <summary>
+    /// The dungeon is private, so each character gets its own mob, by character id
+    /// </summary>
+    private static readonly Dictionary<int, Monster> dungeonMobs = [];
 
     /// <summary>
     /// Client indexes that still see the pedestal sword; each one may take it once per entry
@@ -329,7 +332,7 @@ public static class NewPlayerDungeon
             SendTutorialObjects (client);
             SendStarterSword (client);
             EnsureTutorialVendor ();
-            EnsureDungeonMob ();
+            EnsureDungeonMob (character.Id);
 
             SphLogger.Info ($"New player dungeon loaded for {character.Name}. Client ID: {character.ClientIndex:X4}");
         }
@@ -386,11 +389,12 @@ public static class NewPlayerDungeon
     }
 
     /// <summary>
-    /// One mob for the shared instance, respawned on the next entry once killed
+    /// The character's own mob, seen and fought by nobody else; respawned on the next entry once killed
     /// </summary>
-    private static void EnsureDungeonMob ()
+    private static void EnsureDungeonMob (int characterId)
     {
-        if (dungeonMob is not null && GodotObject.IsInstanceValid (dungeonMob) && !dungeonMob.IsDead)
+        if (dungeonMobs.TryGetValue (characterId, out var existing) && GodotObject.IsInstanceValid (existing)
+            && !existing.IsDead)
         {
             return;
         }
@@ -409,6 +413,7 @@ public static class NewPlayerDungeon
         monster.Angle = WorldObject.CreateRandomSpawnAngle ();
         monster.Name = $"NewPlayerDungeon_{monsterType}";
         monster.ID = WorldObjectIndex.New ();
+        monster.PrivateToCharacterId = characterId;
         // Waypoints are floor heights: the walk adds the model's origin offset on top of them, so a
         // waypoint at the mob's own height would lift it by that offset on every repath
         var spawnY = -DungeonMobWorld.Y;
@@ -418,8 +423,8 @@ public static class NewPlayerDungeon
         // Godot space keeps Y and Z negated, like CharacterDbEntry.Origin
         monster.Transform = new Transform3D (Basis.Identity,
             new Vector3 (DungeonMobWorld.X, -DungeonMobWorld.Y, -DungeonMobWorld.Z));
-        dungeonMob = monster;
-        SphLogger.Info ($"New player dungeon: spawned {monsterType} [{monster.ID:X4}]");
+        dungeonMobs[characterId] = monster;
+        SphLogger.Info ($"New player dungeon: spawned {monsterType} [{monster.ID:X4}] for character {characterId}");
     }
 
     /// <summary>

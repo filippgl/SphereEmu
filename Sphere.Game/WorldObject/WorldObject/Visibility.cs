@@ -26,6 +26,14 @@ public partial class WorldObject
     private bool _visibilityStopped;
 
     /// <summary>
+    /// The character a private instance copy exists for (the newbie dungeon mob); null for everyone
+    /// </summary>
+    public int? PrivateToCharacterId { get; set; }
+
+    protected virtual bool IsHiddenFrom (SphereClient client) =>
+        PrivateToCharacterId is { } owner && client.CurrentCharacter?.Id != owner;
+
+    /// <summary>
     /// After the final despawn: until the node is freed, a body entering or the fallback would add a
     /// client again, and the exit on free would despawn the id once more
     /// </summary>
@@ -74,7 +82,7 @@ public partial class WorldObject
             return;
         }
 
-        if (_visibleClients.Contains (client))
+        if (_visibleClients.Contains (client) || IsHiddenFrom (client))
         {
             return;
         }
@@ -112,7 +120,7 @@ public partial class WorldObject
             return;
         }
 
-        if (!_visibleClients.Add (client))
+        if (IsHiddenFrom (client) || !_visibleClients.Add (client))
         {
             return;
         }
