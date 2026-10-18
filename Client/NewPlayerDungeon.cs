@@ -44,7 +44,7 @@ public static class NewPlayerDungeon
     private const int StartingMoney = 10;
     private const double TeleportDelaySeconds = 1;
     private const double WorldLoadPollSeconds = 0.25;
-    private const double WorldLoadTimeoutSeconds = 20;
+    private const double WorldLoadTimeoutSeconds = 120;
     private const double LoadDelaySeconds = 0.5;
 
     /// <summary>
