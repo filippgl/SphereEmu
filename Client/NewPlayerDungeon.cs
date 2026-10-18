@@ -96,11 +96,16 @@ public static class NewPlayerDungeon
     /// </summary>
     public static void PlaceCharacter (CharacterDbEntry character)
     {
+        PlaceAtSpawn (character);
+        character.Money = StartingMoney;
+    }
+
+    public static void PlaceAtSpawn (CharacterDbEntry character)
+    {
         character.X = ServerConfig.AppConfig.Spawn_X;
         character.Y = -ServerConfig.AppConfig.Spawn_Y;
         character.Z = -ServerConfig.AppConfig.Spawn_Z;
         character.Angle = ServerConfig.AppConfig.Spawn_Angle;
-        character.Money = StartingMoney;
     }
 
     private static void MoveToDungeon (CharacterDbEntry character)

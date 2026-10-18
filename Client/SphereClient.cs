@@ -786,6 +786,16 @@ public partial class SphereClient : WorldObject
 
 		if (CurrentCharacter.HasEnteredWorld)
 		{
+			// Logging in inside the maze hangs the client on loading: the labyr geometry only comes
+			// with the entry teleport, so the character re-enters the dungeon the same way
+			if (ServerConfig.AppConfig.NewPlayerDungeon && NewPlayerDungeon.IsInside (CurrentCharacter))
+			{
+				NewPlayerDungeon.PlaceAtSpawn (CurrentCharacter);
+				startNewPlayerDungeonOnEntry = true;
+				SphLogger.Info ($"Re-entry: logged out inside the new player dungeon. Client ID: {localId:X4}");
+				return;
+			}
+
 			SphLogger.Info ($"Skipping first entry setup (character already entered world). Client ID: {localId:X4}");
 			return;
 		}
