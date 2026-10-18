@@ -1,4 +1,5 @@
 using System.Globalization;
+using SphServer.Client.Networking.GameplayLogic.Stats;
 using SphServer.Helpers;
 using SphServer.Server.GameplayLogic.Cult;
 
@@ -36,6 +37,21 @@ public partial class ConsoleCommandParser
                     "Cult respawn set here: [{0:F1}, {1:F1}, {2:F1}, {3:F2}]", here.x, here.y, here.z, here.turn));
                 break;
 
+            case "karma":
+                // Signed count, so a GM can try both mirrored ends; /stats parses it unsigned
+                if (split.Length < 2 || !int.TryParse (split[1], out var karmaCount))
+                {
+                    SendFeedback ("Usage: /cult karma <count -5000..5000>");
+                    break;
+                }
+
+                currentCharacterDbEntry.SetKarmaCount (karmaCount);
+                NetworkedStatsUpdater.Update (currentCharacterDbEntry, refreshPeers: true);
+                sphereClient?.SaveCharacter ();
+                SendFeedback ($"Karma {currentCharacterDbEntry.KarmaCount} ({currentCharacterDbEntry.Karma}), " +
+                              $"acts as {CultRules.EffectiveKarma (currentCharacterDbEntry)}");
+                break;
+
             case "skin":
                 // Trial of region 61 model_or_type; seen by peers on their next spawn of this character
                 uint? model = split.Length > 1 && uint.TryParse (split[1], out var value) ? value : null;
@@ -49,7 +65,7 @@ public partial class ConsoleCommandParser
                 SendFeedback (
                     $"Cult member: {member}, karma {currentCharacterDbEntry.Karma} acts as " +
                     $"{CultRules.EffectiveKarma (currentCharacterDbEntry)}, respawn {respawn}. " +
-                    "Usage: /cult join [rank] | leave | here");
+                    "Usage: /cult join [rank] | leave | here | karma <n> | skin <n|off>");
                 break;
         }
     }
