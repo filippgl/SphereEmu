@@ -133,6 +133,11 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
         var classification = ClientPacketClassifier.ClassifyFrame (frame);
         if (!classification.IsEvent)
         {
+            if (frame.Length >= 16 && frame[13] == 0x08 && frame[14] == 0x40 && frame[15] == 0xC0)
+            {
+                sphereClient.WorldLoaded = true;
+            }
+
             // Otherwise a frame with no route looks exactly like an idle client.
             if (ServerConfig.AppConfig.DebugMode && frame.Length >= 16)
             {
@@ -385,7 +390,8 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
         }
 
         // Debug convenience only; a newcomer in the tutorial dungeon starts without it, as on live
-        if (!ServerConfig.AppConfig.DebugMode || NewPlayerDungeon.IsInside (sphereClient.CurrentCharacter))
+        if (!ServerConfig.AppConfig.DebugMode || sphereClient.EntersNewPlayerDungeon
+                                                 || NewPlayerDungeon.IsInside (sphereClient.CurrentCharacter))
         {
             starterMutatorSent = true;
             return;
