@@ -7,6 +7,7 @@ using SphServer.Shared.Db;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
+using SphServer.Shared.WorldState;
 using static SphServer.Shared.BitStream.SphBitStream;
 using static SphServer.Shared.Networking.DataModel.Serializers.SphereDbEntrySerializerBase;
 
@@ -89,10 +90,13 @@ public static class Backpack
 
     /// <summary>
     /// An inventory item into a free cell of the worn backpack. The reply mirrors the sack pickup:
-    /// the player's cell empties, the item takes the bag as parent, the bag's cells are redrawn
+    /// the player's cell empties, the item takes the bag as parent, the bag's cells are redrawn.
+    /// A count below the stack moves only that many, as an item of its own
     /// </summary>
-    public static bool PutIn (ClientConnection clientConnection, ItemDbEntry bag, ItemDbEntry item, int cell)
+    public static bool PutIn (ClientConnection clientConnection, ItemDbEntry bag, ItemDbEntry item, int cell,
+        int count = 0)
     {
+        var splitting = IsSplit (item, count);
         var localId = clientConnection.LocalId;
         var character = clientConnection.GetSelectedCharacter ();
         var from = character?.Items.FirstOrDefault (x => x.Value == item.Id && x.Key != BelongingSlot.MainHand);
@@ -106,7 +110,8 @@ public static class Backpack
             refusal = $"worn in {Enum.GetName (from.Value.Key)}";
         }
         // MainHand holds a reference to an inventory item, so the hand would point into the bag
-        else if (character.Items.TryGetValue (BelongingSlot.MainHand, out var inHand) && inHand == item.Id)
+        else if (!splitting && character.Items.TryGetValue (BelongingSlot.MainHand, out var inHand) &&
+                 inHand == item.Id)
         {
             refusal = "held in hand";
         }
@@ -127,6 +132,27 @@ public static class Backpack
         }
 
         var slot = from!.Value.Key;
+        if (splitting)
+        {
+            var part = SplitOff (item, count);
+            part.ParentBackpackId = bag.Id;
+            DbConnection.Items.Update (part);
+            bag.BackpackContents[cell] = part.Id;
+            DbConnection.Items.Update (bag);
+
+            clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodeCount (item));
+            if (ItemSlotReserve.Build (localId, slot, item.Id, item.ItemCount) is { } kept)
+            {
+                clientConnection.MaybeScheduleNetworkPacketSend (kept);
+            }
+
+            clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.Encode (part, (ushort) bag.Id));
+            clientConnection.MaybeScheduleNetworkPacketSend (BuildCellsPacket (bag));
+            Log (localId, bag, part, $"{count} of {item.ItemCount + count} split off {Enum.GetName (slot)} " +
+                                     $"[{item.Id:X4}] -> cell {cell}");
+            return true;
+        }
+
         character!.Items.Remove (slot);
         bag.BackpackContents[cell] = item.Id;
         item.ParentBackpackId = bag.Id;
@@ -146,9 +172,11 @@ public static class Backpack
     }
 
     /// <summary>
-    /// Out of the bag into a player slot; a non-inventory target must also take the item
+    /// Out of the bag into a player slot; a non-inventory target must also take the item. A count
+    /// below the stack takes only that many and leaves the rest in the cell
     /// </summary>
-    public static bool TakeOut (ClientConnection clientConnection, ItemDbEntry item, BelongingSlot? wanted)
+    public static bool TakeOut (ClientConnection clientConnection, ItemDbEntry item, BelongingSlot? wanted,
+        int count = 0)
     {
         var localId = clientConnection.LocalId;
         var character = clientConnection.GetSelectedCharacter ();
@@ -169,6 +197,25 @@ public static class Backpack
             Log (localId, bag, item, "not taken out: inventory is full");
             Redraw (clientConnection, bag, null);
             return false;
+        }
+
+        if (IsSplit (item, count))
+        {
+            var part = SplitOff (item, count);
+            character.PlaceItemInSlot (slot.Value, part.Id);
+            clientConnection.SaveSelectedCharacter ();
+
+            clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodeCount (item));
+            clientConnection.MaybeScheduleNetworkPacketSend (BuildCellsPacket (bag));
+            clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.Encode (part, ByteSwap (localId)));
+            if (ItemSlotReserve.Build (localId, slot.Value, part.Id, part.ItemCount) is { } claimed)
+            {
+                clientConnection.MaybeScheduleNetworkPacketSend (claimed);
+            }
+
+            Log (localId, bag, part, $"{count} of {item.ItemCount + count} split off cell {cell.Value.Key} " +
+                                     $"[{item.Id:X4}] -> {Enum.GetName (slot.Value)}");
+            return true;
         }
 
         bag.BackpackContents.Remove (cell.Value.Key);
@@ -196,15 +243,39 @@ public static class Backpack
     }
 
     /// <summary>
-    /// Between two cells of one bag; an occupied target swaps
+    /// Between two cells of one bag; an occupied target swaps, and a count below the stack splits
+    /// that many into an empty target
     /// </summary>
-    public static void MoveCell (ClientConnection clientConnection, ItemDbEntry bag, int from, int to)
+    public static void MoveCell (ClientConnection clientConnection, ItemDbEntry bag, int from, int to, int count = 0)
     {
         if (from == to || to < 0 || to >= CellCount (bag) || !bag.BackpackContents.TryGetValue (from, out var itemId))
         {
             SphLogger.Info ($"Backpack {bag.Id:X4}: no move from cell {from} to {to}. " +
                             $"Client ID: {clientConnection.LocalId:X4}");
             Redraw (clientConnection, bag, null);
+            return;
+        }
+
+        if (count > 0 && DbConnection.Items.FindById (itemId) is { } stack && IsSplit (stack, count))
+        {
+            if (bag.BackpackContents.ContainsKey (to))
+            {
+                SphLogger.Info ($"Backpack {bag.Id:X4}: no split from cell {from} into taken cell {to}. " +
+                                $"Client ID: {clientConnection.LocalId:X4}");
+                Redraw (clientConnection, bag, null);
+                return;
+            }
+
+            var part = SplitOff (stack, count);
+            part.ParentBackpackId = bag.Id;
+            DbConnection.Items.Update (part);
+            bag.BackpackContents[to] = part.Id;
+            DbConnection.Items.Update (bag);
+            clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.EncodeCount (stack));
+            clientConnection.MaybeScheduleNetworkPacketSend (ItemRecordEncoder.Encode (part, (ushort) bag.Id));
+            clientConnection.MaybeScheduleNetworkPacketSend (BuildCellsPacket (bag));
+            SphLogger.Info ($"Backpack {bag.Id:X4}: {count} split off cell {from} into cell {to} as {part.Id:X4}. " +
+                            $"Client ID: {clientConnection.LocalId:X4}");
             return;
         }
 
@@ -236,6 +307,25 @@ public static class Backpack
         {
             clientConnection.MaybeScheduleNetworkPacketSend (reserve);
         }
+    }
+
+    private static bool IsSplit (ItemDbEntry item, int count) => count > 0 && count < item.ItemCount;
+
+    /// <summary>
+    /// The moved part of a stack becomes an item of its own; the source keeps the rest
+    /// </summary>
+    private static ItemDbEntry SplitOff (ItemDbEntry item, int count)
+    {
+        var part = ItemDbEntry.Clone (item, insertIntoItemCollection: false);
+        part.Id = WorldObjectIndex.NewItem ();
+        part.ItemCount = count;
+        part.ParentBackpackId = null;
+        part.BackpackContents = new ();
+        DbConnection.Items.Insert (part.Id, part);
+
+        item.ItemCount -= count;
+        DbConnection.Items.Update (item);
+        return part;
     }
 
     private static List<ItemDbEntry> GetItems (ItemDbEntry bag) =>
