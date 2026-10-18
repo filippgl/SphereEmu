@@ -450,6 +450,8 @@ public static class NewPlayerDungeon
         var playerId = character.ClientIndex;
         client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodePutInto (localTokenId, ObjectType.Token_Tutorial_Torweal,
             SphServer.Shared.BitStream.SphBitStream.ByteSwap (playerId)));
+        // Item scripts keep their amount at 0 until this arrives, and TestIt then divides by it
+        client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodeCount (localTokenId, ObjectType.Token_Tutorial_Torweal, 1));
         if (ItemSlotReserve.Build (playerId, slot, localTokenId) is { } reserve)
         {
             client.MaybeQueueNetworkPacketSend (reserve);
