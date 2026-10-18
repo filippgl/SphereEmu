@@ -409,7 +409,11 @@ public static class NewPlayerDungeon
         monster.Angle = WorldObject.CreateRandomSpawnAngle ();
         monster.Name = $"NewPlayerDungeon_{monsterType}";
         monster.ID = WorldObjectIndex.New ();
-        monster.PathOverride = FindMazePath;
+        // Waypoints are floor heights: the walk adds the model's origin offset on top of them, so a
+        // waypoint at the mob's own height would lift it by that offset on every repath
+        var spawnY = -DungeonMobWorld.Y;
+        var floorY = spawnY - monster.GetSpawnOriginYOffset (spawnY);
+        monster.PathOverride = (from, to) => FindMazePath (from, to, floorY);
         SphereServer.ServerNode.CallDeferred ("add_child", monster);
         // Godot space keeps Y and Z negated, like CharacterDbEntry.Origin
         monster.Transform = new Transform3D (Basis.Identity,
@@ -421,7 +425,7 @@ public static class NewPlayerDungeon
     /// <summary>
     /// Godot-space waypoints through the corridor cells; within one cell the walk is straight
     /// </summary>
-    private static IReadOnlyList<Vector3>? FindMazePath (Vector3 from, Vector3 to)
+    private static IReadOnlyList<Vector3>? FindMazePath (Vector3 from, Vector3 to, float floorY)
     {
         var start = FindMazeCell (from);
         var goal = FindMazeCell (to);
@@ -438,17 +442,17 @@ public static class NewPlayerDungeon
             var first = IsOnMazeAxis (from, start, start + step) ? start + step : start;
             for (var i = first; i != goal; i += step)
             {
-                path.Add (new Vector3 (MazeCells[i].X, from.Y, -MazeCells[i].Y));
+                path.Add (new Vector3 (MazeCells[i].X, floorY, -MazeCells[i].Y));
             }
 
             // Likewise its target's center only matters when the target is round the cell's corner
             if (!IsOnMazeAxis (to, goal, goal - step))
             {
-                path.Add (new Vector3 (MazeCells[goal].X, from.Y, -MazeCells[goal].Y));
+                path.Add (new Vector3 (MazeCells[goal].X, floorY, -MazeCells[goal].Y));
             }
         }
 
-        path.Add (new Vector3 (to.X, from.Y, to.Z));
+        path.Add (new Vector3 (to.X, floorY, to.Z));
         return path;
     }
 
