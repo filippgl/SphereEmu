@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Godot;
 using SphServer.Client;
@@ -49,6 +50,11 @@ public partial class Monster
     private MonsterNavMode navMode = MonsterNavMode.Idle;
 
     public MonsterNavMode NavMode => navMode;
+
+    /// <summary>
+    /// Paths for a place the navmesh does not cover (a client-built maze); null means no path
+    /// </summary>
+    public Func<Vector3, Vector3, IReadOnlyList<Vector3>?>? PathOverride { get; set; }
     private Vector3 navGoalWorld;
     private float navRepathCooldown;
     private readonly List<Vector3> navWaypoints = [];
@@ -332,6 +338,11 @@ public partial class Monster
     /// </summary>
     private bool TryPathTo (Vector3 goalWorld)
     {
+        if (PathOverride is { } pathOverride)
+        {
+            return pathOverride (GlobalPosition, goalWorld) is { } waypoints && TrySetNavPath (waypoints);
+        }
+
         if (TryGetHomeSpawner (out var spawner) && spawner.TryNavigateMonster (this, goalWorld, out _))
         {
             return true;
