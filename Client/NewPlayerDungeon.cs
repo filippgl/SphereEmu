@@ -102,6 +102,27 @@ public static class NewPlayerDungeon
     ];
 
     private static readonly ushort[] tutorialEntityIds = new ushort[TutorialPoints.Length];
+
+    /// <summary>
+    /// x000 token marker on its stone; the captured replay brings its own copy as 0B16, which is
+    /// removed so only the server's token, whose pickup is answered, stays
+    /// </summary>
+    private static readonly Vector3 TokenWorld = new (-1099.616f, 4501.088f, 1943.19f);
+
+    private const ushort ReplayTokenEntityId = 0x0B16;
+
+    /// <summary>
+    /// tokenst setup (ContMan 15, u24 LOCKID + u8 NUM): teleport point 1803 «В Торвил», one charge
+    /// </summary>
+    private static readonly byte[] TokenSetup = [0x0B, 0x07, 0x00, 1];
+
+    private static ushort tokenEntityId;
+    private static readonly HashSet<ushort> tokenShownTo = [];
+
+    /// <summary>
+    /// Clients holding the token leave the original way, by using it on the portal
+    /// </summary>
+    private static readonly HashSet<ushort> tokenTakenBy = [];
     private static ushort exitTeleportEntityId;
 
     /// <summary>
@@ -308,6 +329,20 @@ public static class NewPlayerDungeon
             exitTeleportEntityId = WorldObjectIndex.New ();
         }
 
+        if (tokenEntityId == 0)
+        {
+            tokenEntityId = WorldObjectIndex.New ();
+        }
+
+        client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (ReplayTokenEntityId));
+        client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
+            client.GetLocalObjectId (tokenEntityId), ObjectType.Token_Tutorial_Torweal,
+            TokenWorld.X, TokenWorld.Y, TokenWorld.Z, 15, TokenSetup));
+        if (client.CurrentCharacter is { } viewer)
+        {
+            tokenShownTo.Add (viewer.ClientIndex);
+        }
+
         client.MaybeQueueNetworkPacketSend (CommonPackets.BuildContManSpawn (
             client.GetLocalObjectId (exitTeleportEntityId), ObjectType.Teleport,
             ExitPortalWorld.X, ExitPortalWorld.Y, ExitPortalWorld.Z));
@@ -385,6 +420,41 @@ public static class NewPlayerDungeon
     /// The pedestal object goes away for this client only, and a regular Кривой меч takes its place
     /// in the inventory, since the client cannot carry a weapon without a game id
     /// </summary>
+    public static ushort? TokenIdFor (SphereClient client) =>
+        tokenEntityId != 0 && client.CurrentCharacter is { } character && tokenShownTo.Contains (character.ClientIndex)
+            ? client.GetLocalObjectId (tokenEntityId)
+            : null;
+
+    /// <summary>
+    /// The token is a client object with no DB item, so the same object is moved into the bag
+    /// with the live pickup reply and keeps the target and charges set at spawn
+    /// </summary>
+    public static void TakeToken (SphereClient client)
+    {
+        if (TokenIdFor (client) is not { } localTokenId || client.CurrentCharacter is not { } character)
+        {
+            return;
+        }
+
+        if (character.FindEmptyInventorySlot () is not { } slot)
+        {
+            SphLogger.Info ($"New player dungeon: {character.Name} cannot take the token, inventory full");
+            return;
+        }
+
+        tokenShownTo.Remove (character.ClientIndex);
+        tokenTakenBy.Add (character.ClientIndex);
+        var playerId = character.ClientIndex;
+        client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodePutInto (localTokenId, ObjectType.Token_Tutorial_Torweal,
+            SphServer.Shared.BitStream.SphBitStream.ByteSwap (playerId)));
+        if (ItemSlotReserve.Build (playerId, slot, localTokenId) is { } reserve)
+        {
+            client.MaybeQueueNetworkPacketSend (reserve);
+        }
+
+        SphLogger.Info ($"New player dungeon: {character.Name} took the token [{localTokenId:X4}] into {slot}");
+    }
+
     public static void TakeStarterSword (SphereClient client)
     {
         if (StarterSwordIdFor (client) is not { } localSwordId || client.CurrentCharacter is not { } character)
@@ -447,6 +517,7 @@ public static class NewPlayerDungeon
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
         if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius
+            || tokenTakenBy.Contains (character.ClientIndex)
             || lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt)
             && (DateTime.UtcNow - exitedAt).TotalSeconds < ExitCooldownSeconds)
         {

@@ -128,12 +128,18 @@ public static class ItemRecordEncoder
     /// The item half of the live pickup reply: region 2 at the contained position with contain
     /// state 2, then ContMan cmd 0 naming the new parent
     /// </summary>
-    public static byte[] EncodePutInto (ItemDbEntry item, ushort parentWireId)
+    public static byte[] EncodePutInto (ItemDbEntry item, ushort parentWireId) =>
+        EncodePutInto ((ushort) item.Id, item.WireObjectType, parentWireId);
+
+    /// <summary>
+    /// Also for client-side objects with no DB item, such as the newbie dungeon token
+    /// </summary>
+    public static byte[] EncodePutInto (ushort itemId, ObjectType wireObjectType, ushort parentWireId)
     {
         var stream = GetWriteBitStream ();
-        stream.WriteUInt16 ((ushort) item.Id, 16);
+        stream.WriteUInt16 (itemId, 16);
         stream.WriteByte (0, 2);
-        stream.WriteUInt16 ((ushort) ((int) item.WireObjectType & 0xFFF), 12);
+        stream.WriteUInt16 ((ushort) ((int) wireObjectType & 0xFFF), 12);
         stream.WriteByte (PlaceRegionWire, 7);
         WriteUInt32Full (stream, BitConverter.SingleToUInt32Bits (ContainedX));
         WriteUInt32Full (stream, 0);

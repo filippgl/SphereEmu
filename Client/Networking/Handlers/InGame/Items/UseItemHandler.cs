@@ -26,6 +26,12 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection, 
             return;
         }
 
+        if (NewPlayerDungeon.TokenIdFor (client) == itemId)
+        {
+            NewPlayerDungeon.TakeToken (client);
+            return;
+        }
+
         // This client opens a loot sack with the use request, naming the sack instead of an item
         if (DbConnection.ItemContainers.FindById ((int) itemId) is { } bag)
         {
