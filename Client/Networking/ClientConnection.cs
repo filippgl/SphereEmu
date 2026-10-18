@@ -20,6 +20,7 @@ using SphServer.Helpers.Networking;
 using SphServer.Packets;
 using SphServer.Server.Broadcast;
 using SphServer.Server.Config;
+using SphServer.Server.GameplayLogic.Cult;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
@@ -47,6 +48,7 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
     private bool seenFirstPositionKeepalive;
     private double timeSinceFirstPositionKeepalive;
     private bool starterMutatorSent;
+    private bool cultSkinSent;
     private bool playerCountPublished;
 
     /// <summary>
@@ -108,6 +110,12 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
             {
                 timeSinceFirstPositionKeepalive += delta;
                 MaybeSendStarterMutator ();
+                if (!cultSkinSent && timeSinceFirstPositionKeepalive >= 3.0)
+                {
+                    // The own body exists by now; a skin sent before it would be ignored
+                    cultSkinSent = true;
+                    CultRules.SendOwnSkin (sphereClient);
+                }
             }
 
             // keepalive always happens - it's time-based instead of client input based

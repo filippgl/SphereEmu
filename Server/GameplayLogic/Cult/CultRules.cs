@@ -75,6 +75,11 @@ public static class CultRules
         client.BroadcastClanRefreshToVisibleClients ();
         client.SaveCharacter ();
         SphLogger.Info ($"Cult: {character.Name} joined [{clan.Name}] as {character.ClanRank} (was [{oldClan}])");
+        if (cfg.SkinNumber > 0)
+        {
+            SetSkin (client, cfg.SkinNumber);
+        }
+
         return true;
     }
 
@@ -101,40 +106,68 @@ public static class CultRules
 
     private static ILiteCollection<CultStateDbEntry> State => DbConnection.Db.GetCollection<CultStateDbEntry> ("Cult");
 
-    /// <summary>
-    /// The point set in game wins over cult.json, so a GM can place it without a redeploy
-    /// </summary>
-    private static readonly Dictionary<int, uint> SpawnModelTrials = new ();
+    // _player TradeMan command 11 stores 4 bytes into specab (stat 20); byte 2 is the turnskin SK
+    // number that CheckSpec and ControlMove swap the body for, 0 restores it
+    private const byte SpecabCommand = 11;
+
+    private static ILiteCollection<CultSkinDbEntry> Skins =>
+        DbConnection.Db.GetCollection<CultSkinDbEntry> ("CultSkins");
 
     /// <summary>
-    /// region 61 model_or_type for this character, or null for the packed look; the client runs
-    /// NumToModel on it when it is not 101
+    /// Kept after leaving the cult, as the dwarf look stayed with former members
     /// </summary>
-    public static uint? SpawnModelOverride (CharacterDbEntry character)
+    public static byte SkinFor (CharacterDbEntry character) => Skins.FindById (character.Id)?.Skin ?? 0;
+
+    public static void SetSkin (SphereClient client, byte skin)
     {
-        if (SpawnModelTrials.TryGetValue (character.Id, out var trial))
+        var character = client.CurrentCharacter;
+        if (character is null)
         {
-            return trial;
+            return;
         }
 
-        return IsMember (character) ? Config?.SkinModel : null;
-    }
-
-    /// <summary>
-    /// Null clears it; peers see the change on their next spawn of this character
-    /// </summary>
-    public static void SetSpawnModelTrial (CharacterDbEntry character, uint? model)
-    {
-        if (model is { } value)
+        if (skin == 0)
         {
-            SpawnModelTrials[character.Id] = value;
+            Skins.Delete (character.Id);
         }
         else
         {
-            SpawnModelTrials.Remove (character.Id);
+            Skins.Upsert (new CultSkinDbEntry { Id = character.Id, Skin = skin });
+        }
+
+        client.BroadcastSkinToVisibleClients (skin);
+        SphLogger.Info ($"Cult: {character.Name} skin set to SK{skin:D2}");
+    }
+
+    /// <summary>
+    /// A viewer applies it only after its spawn of the character, so it follows region 61
+    /// </summary>
+    public static void SendSkin (SphereClient viewer, ushort entityId, byte skin) =>
+        viewer.MaybeQueueNetworkPacketSend (
+            CommonPackets.BuildPlayerTradeManCommand (entityId, SpecabCommand, [0, 0, skin, 0]));
+
+    public static void SendSkinIfAny (SphereClient viewer, ushort entityId, CharacterDbEntry character)
+    {
+        if (SkinFor (character) is var skin and > 0)
+        {
+            SendSkin (viewer, entityId, skin);
         }
     }
 
+    /// <summary>
+    /// The owner's own body takes it from its player record once in the world
+    /// </summary>
+    public static void SendOwnSkin (SphereClient client)
+    {
+        if (client.CurrentCharacter is { } character)
+        {
+            SendSkinIfAny (client, character.ClientIndex, character);
+        }
+    }
+
+    /// <summary>
+    /// The point set in game wins over cult.json, so a GM can place it without a redeploy
+    /// </summary>
     public static WorldCoords? RespawnPoint
     {
         get
