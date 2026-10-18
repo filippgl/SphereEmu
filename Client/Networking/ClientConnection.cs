@@ -225,7 +225,7 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
         groupActionsHandler ??= new (this);
         openLootContainerHandler ??= new (localId, this);
         clientChatHandler ??= new (this);
-        pickupItemHandler ??= new (localId, this);
+        pickupItemHandler ??= new (localId, this, sphereClient);
         dragItemOnGroundHandler ??= new (localId, this);
         moveItemHandler ??= new (localId, this);
         useItemHandler ??= new (localId, this);

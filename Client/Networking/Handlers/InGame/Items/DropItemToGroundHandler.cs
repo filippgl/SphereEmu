@@ -17,8 +17,6 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
     : ISphereClientNetworkingHandler
 {
     private const int ItemIdBitOffset = 141;
-    private const ushort GroundContainerId = 0xFF00;
-    private const double DropOffsetZ = 1.0;
 
     public async Task Handle (byte[] frame, double delta)
     {
@@ -43,9 +41,22 @@ public class DropItemToGroundHandler (ushort localId, ClientConnection clientCon
             return;
         }
 
-        // TODO: the client keeps the item until it gets a loot bag holding it; removing it here
-        // without that desyncs the inventory, so the drop is refused for now
+        // The client lets go of the item only once the sack's spawn re-parents it there
+        var wasWorn = slots.Any (slot => !ItemDbEntry.IsInventorySlot (slot));
+        foreach (var slot in slots)
+        {
+            character.Items.Remove (slot);
+        }
+
+        if (wasWorn && character.RecalcCurrentStats ())
+        {
+            NetworkedStatsUpdater.Update (character);
+        }
+
+        client.SaveCharacter ();
+        var bag = ItemContainerDbEntry.SpawnWithItems (character.Origin, [item]);
+
         var name = item.Localization.GetValueOrDefault (Locale.Russian, item.GameObjectType.ToString ());
-        SphLogger.Info ($"Drop to ground refused: {name} [{itemId:X4}] stays in {string.Join (",", slots)}. Client ID: {localId:X4}");
+        SphLogger.Info ($"Dropped {name} [{itemId:X4}] from {string.Join (",", slots)} into loot bag {bag.Id:X4}. Client ID: {localId:X4}");
     }
 }
