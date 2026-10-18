@@ -1,0 +1,104 @@
+using System;
+using SphServer.Client.Networking.Handlers.InGame.Mutator;
+using SphServer.Helpers;
+using SphServer.Shared.BitStream;
+using SphServer.Shared.Db;
+using SphServer.Shared.Db.DataModels;
+using SphServer.Shared.Logger;
+using SphServer.Shared.Networking.Chat.Encoders;
+using SphServer.Shared.Networking.DataModel.Serializers;
+using SphServer.Shared.WorldState;
+using SphServer.Sphere.Game.WorldObject;
+
+namespace SphServer.Client.Networking.Handlers.InGame.DamageHealEffects;
+
+public static class InquisitorAbilities
+{
+    public static bool IsAbility (int gameId) =>
+        gameId is >= 5710 and <= 5715 or >= 5720 and <= 5725 or >= 5730 and <= 5735;
+
+    public static bool TryUse (SphereClient caster, ItemDbEntry ability, ushort targetId)
+    {
+        if (!IsAbility (ability.GameId))
+        {
+            return false;
+        }
+        if (caster.CurrentCharacter is not { } character || character.Guild != Guild.Inquisitor ||
+            !character.Items.ContainsValue (ability.Id))
+        {
+            return true;
+        }
+
+        if (ability.NextAbilityUseAt is { } ready && ready > DateTime.UtcNow)
+        {
+            Tell (caster, $"Способность восстанавливается: {Math.Ceiling ((ready - DateTime.UtcNow).TotalMinutes)} мин.");
+            return true;
+        }
+
+        var target = targetId == caster.localId || targetId == SphBitStream.ByteSwap (caster.localId)
+            ? caster
+            : ActiveClients.Get (targetId) as WorldObject ?? ActiveWorldObjects.Get (targetId);
+        if (target is null || target is not (SphereClient or Monster))
+        {
+            Tell (caster, "Для способности нужна живая цель.");
+            return true;
+        }
+        if (target.GlobalPosition.DistanceTo (character.Origin) > Math.Max (1, ability.Range) + 0.5f)
+        {
+            Tell (caster, "Цель слишком далеко.");
+            return true;
+        }
+
+        var success = false;
+        if (ability.GameId is >= 5710 and <= 5715)
+        {
+            if (target is SphereClient { CurrentCharacter: { CurrentHP: > 0 } victim } targetClient)
+            {
+                var point = SavedCoords.RespawnPoints[Continents.Гиперион][Cities.Санпул][KarmaTypes.Очень_Плохая];
+                targetClient.MaybeQueueNetworkPacketSend (new CharacterDbEntrySerializer (victim).GetTeleportByteArray (point));
+                victim.X = point.x;
+                victim.Y = -point.y;
+                victim.Z = -point.z;
+                victim.Angle = point.turn;
+                targetClient.SaveCharacter ();
+                targetClient.UpdateCoordinatesInWorld ();
+                Tell (caster, "Возрождение: цель перенесена к месту появления персонажей с очень плохой кармой.");
+                success = true;
+            }
+            else
+            {
+                Tell (caster, "Возрождение применяется к живому персонажу.");
+            }
+        }
+        else if (ability.GameId is >= 5720 and <= 5725)
+        {
+            var seconds = Math.Max (1, ability._duration) * 10;
+            success = target switch
+            {
+                SphereClient { CurrentCharacter.CurrentHP: > 0 } player =>
+                    ActiveMutators.ApplyShackles (player, seconds, caster.localId),
+                Monster { IsDead: false } monster => ActiveMutators.ApplyShackles (monster, seconds),
+                _ => false
+            };
+            Tell (caster, success ? $"Оковы: {seconds / 60} мин." : "Не удалось наложить Оковы.");
+        }
+        else
+        {
+            var count = Math.Clamp (ability._duration - 95, 1, 6);
+            var removed = target is SphereClient player ? ActiveMutators.Purify (player, count) : 0;
+            Tell (caster, $"Очищение: снято положительных эффектов: {removed}.");
+            success = true;
+        }
+
+        if (success)
+        {
+            ability.NextAbilityUseAt = DateTime.UtcNow.AddHours (Math.Max (1, ability.ReuseDelayHours));
+            DbConnection.Items.Update (ability);
+            SphLogger.Info ($"Inquisitor ability {ability.GameId}: {character.ClientIndex:X4} -> {targetId:X4}");
+        }
+        return true;
+    }
+
+    public static void Tell (SphereClient client, string message) => client.MaybeQueueNetworkPacketSend (
+        MessageEncoder.EncodeToSendFromServer (message, "GM", (int) PublicChatType.GM_Outgoing));
+}

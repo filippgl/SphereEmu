@@ -76,7 +76,8 @@ public partial class Monster
     /// </summary>
     private void TryMeleeAttack (SphereClient target, float deltaSeconds)
     {
-        if (IsDead || DataAttackDelay <= 0f)
+        if (IsDead || DataAttackDelay <= 0f ||
+            SphServer.Client.Networking.Handlers.InGame.Mutator.ActiveMutators.HandsBound (this))
         {
             return;
         }

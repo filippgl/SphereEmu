@@ -114,6 +114,7 @@ public static class MutatorHandler
         PacketPart.UpdateValue (mutatorParts, "mutator_id", mutatorId, 16);
         PacketPart.UpdateValue (mutatorParts, "from_id", playerId, 16);
         clientConnection.MaybeScheduleNetworkPacketSend (PacketPart.GetBytesToWrite (mutatorParts));
+        ActiveMutators.Register (localId, itemId, mutatorId, slot, 2592000, beneficial: true);
 
         SphLogger.Info ($"Sent mutator {mutator} ({mutatorId}) to slot {slot} as {itemId:X4}. Client ID: {localId:X4}");
     }
