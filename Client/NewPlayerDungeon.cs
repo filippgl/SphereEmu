@@ -1,7 +1,10 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using SphServer.Helpers;
+using SphServer.Packets;
 using SphServer.Server.Config;
+using SphServer.Shared.Db;
 using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.GameData.Enums;
 using SphServer.Shared.Logger;
@@ -62,8 +65,30 @@ public static class NewPlayerDungeon
     /// </summary>
     private static readonly WorldCoords ExitCoords = new (2292, 155.3, -2386);
 
+    /// <summary>
+    /// Live wp_sword1st (weapon_starting_sword) on the pedestal, next to the x000 wp_sword1 marker
+    /// (maze -3930.07 1100.82 -3899.86)
+    /// </summary>
+    private static readonly Vector3 StarterSwordWorld = new (-1130.093f, 4500.912f, 1900.147f);
+
+    /// <summary>
+    /// Кривой меч: wp_sword1st has no game object, and this is the weakest catalog sword
+    /// </summary>
+    private const int StarterSwordGameId = 1;
+
+    /// <summary>
+    /// Not a process id, so the client keeps the sword on the ground
+    /// </summary>
+    private const ushort GroundContainerId = 0xFF00;
+
     private static ushort labyrinthEntityId;
+    private static ushort starterSwordEntityId;
     private static Monster? dungeonMob;
+
+    /// <summary>
+    /// Client indexes that still see the pedestal sword; each one may take it once per entry
+    /// </summary>
+    private static readonly HashSet<ushort> starterSwordShownTo = [];
 
     /// <summary>
     /// The client hangs on the loading screen when the session starts inside the dungeon, so the
@@ -119,7 +144,8 @@ public static class NewPlayerDungeon
     }
 
     /// <summary>
-    /// GM /npd entry; without the captured replay only the teleport and the geometry go out
+    /// GM /npd entry; without the captured replay only the teleport, the geometry, the mob and the
+    /// pedestal sword go out
     /// </summary>
     public static async void Enter (SphereClient client, bool replayCapturedObjects)
     {
@@ -149,6 +175,7 @@ public static class NewPlayerDungeon
                 client.SendMoney ();
             }
 
+            SendStarterSword (client);
             EnsureDungeonMob ();
 
             SphLogger.Info ($"New player dungeon loaded for {character.Name}. Client ID: {character.ClientIndex:X4}");
@@ -189,6 +216,73 @@ public static class NewPlayerDungeon
             new Vector3 (DungeonMobWorld.X, -DungeonMobWorld.Y, -DungeonMobWorld.Z));
         dungeonMob = monster;
         SphLogger.Info ($"New player dungeon: spawned {monsterType} [{monster.ID:X4}]");
+    }
+
+    /// <summary>
+    /// The captured replay only moves the sword (TransformUpdate 0B09), its spawn frame is cut off,
+    /// so the spawn goes in the weapon_starting_sword.spdp shape: no game id, ground container
+    /// </summary>
+    private static void SendStarterSword (SphereClient client)
+    {
+        if (client.CurrentCharacter is not { } character)
+        {
+            return;
+        }
+
+        if (starterSwordEntityId == 0)
+        {
+            starterSwordEntityId = WorldObjectIndex.New ();
+        }
+
+        client.MaybeQueueNetworkPacketSend (ItemRecordEncoder.EncodeWithoutGameId (
+            client.GetLocalObjectId (starterSwordEntityId), (int) ObjectType.Weapon_Starting_Sword, GroundContainerId,
+            StarterSwordWorld.X, StarterSwordWorld.Y, StarterSwordWorld.Z));
+        starterSwordShownTo.Add (character.ClientIndex);
+    }
+
+    /// <summary>
+    /// Null once the client took the sword or never got it
+    /// </summary>
+    public static ushort? StarterSwordIdFor (SphereClient client)
+    {
+        if (starterSwordEntityId == 0 || client.CurrentCharacter is not { } character
+                                      || !starterSwordShownTo.Contains (character.ClientIndex))
+        {
+            return null;
+        }
+
+        return client.GetLocalObjectId (starterSwordEntityId);
+    }
+
+    /// <summary>
+    /// The pedestal object goes away for this client only, and a regular Кривой меч takes its place
+    /// in the inventory, since the client cannot carry a weapon without a game id
+    /// </summary>
+    public static void TakeStarterSword (SphereClient client)
+    {
+        if (StarterSwordIdFor (client) is not { } localSwordId || client.CurrentCharacter is not { } character)
+        {
+            return;
+        }
+
+        if (character.FindEmptyInventorySlot () is null
+            || !SphObjectDb.GameObjectDataDb.TryGetValue (StarterSwordGameId, out var catalog))
+        {
+            // A drag already lifted the sword off the pedestal, so it is put back
+            SendStarterSword (client);
+            SphLogger.Info ($"New player dungeon: {character.Name} cannot take the starter sword, inventory full");
+            return;
+        }
+
+        starterSwordShownTo.Remove (character.ClientIndex);
+        client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (localSwordId));
+
+        var item = ItemDbEntry.CreateFromGameObject (SphGameObject.CreateFromGameObject (catalog));
+        item.ItemCount = 1;
+        item.Id = WorldObjectIndex.NewItem ();
+        DbConnection.SaveItem (item);
+        var slot = client.PutItemInInventoryAndDeclare (item);
+        SphLogger.Info ($"New player dungeon: {character.Name} took the starter sword [{item.Id:X4}] into {slot}");
     }
 
     /// <summary>
