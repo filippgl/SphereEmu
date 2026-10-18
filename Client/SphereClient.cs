@@ -63,6 +63,14 @@ public partial class SphereClient : WorldObject
 	private const double OwnWornGearAfterChangeSeconds = 1;
 	private bool startNewPlayerDungeonOnEntry;
 
+	/// <summary>
+	/// Set by the 08 40 C0 frame the client sends once the world around it has loaded; a teleport
+	/// that arrives before it is dropped together with the loading screen
+	/// </summary>
+	public bool WorldLoaded { get; set; }
+
+	public bool EntersNewPlayerDungeon { get; private set; }
+
 	internal Area3D? BroadcastArea3D { get; private set; }
 
 	public override async void _PhysicsProcess (double delta)
@@ -792,6 +800,7 @@ public partial class SphereClient : WorldObject
 			{
 				NewPlayerDungeon.PlaceAtSpawn (CurrentCharacter);
 				startNewPlayerDungeonOnEntry = true;
+				EntersNewPlayerDungeon = true;
 				SphLogger.Info ($"Re-entry: logged out inside the new player dungeon. Client ID: {localId:X4}");
 				return;
 			}
@@ -806,6 +815,7 @@ public partial class SphereClient : WorldObject
 		{
 			NewPlayerDungeon.PlaceCharacter (CurrentCharacter);
 			startNewPlayerDungeonOnEntry = true;
+			EntersNewPlayerDungeon = true;
 			SphLogger.Info ($"First entry: placed in the new player dungeon. Client ID: {localId:X4}");
 			return;
 		}

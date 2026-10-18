@@ -42,7 +42,9 @@ public static class NewPlayerDungeon
     private const float LabyrinthZ = 1900f;
 
     private const int StartingMoney = 10;
-    private const double TeleportDelaySeconds = 3;
+    private const double TeleportDelaySeconds = 1;
+    private const double WorldLoadPollSeconds = 0.25;
+    private const double WorldLoadTimeoutSeconds = 20;
     private const double LoadDelaySeconds = 0.5;
 
     /// <summary>
@@ -134,6 +136,17 @@ public static class NewPlayerDungeon
     {
         try
         {
+            // A cold client can sit on the loading screen for seconds after entry, and a teleport
+            // sent then is lost, leaving the newcomer at the regular spawn
+            for (var waited = 0.0; !client.WorldLoaded && waited < WorldLoadTimeoutSeconds; waited += WorldLoadPollSeconds)
+            {
+                await client.ToSignal (client.GetTree ().CreateTimer (WorldLoadPollSeconds), SceneTreeTimer.SignalName.Timeout);
+                if (!GodotObject.IsInstanceValid (client))
+                {
+                    return;
+                }
+            }
+
             await client.ToSignal (client.GetTree ().CreateTimer (TeleportDelaySeconds), SceneTreeTimer.SignalName.Timeout);
             if (!GodotObject.IsInstanceValid (client))
             {
