@@ -6,13 +6,14 @@ using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
 using SphServer.Shared.Networking.DataModel.Serializers;
+using SphServer.Shared.WorldState;
 
 namespace SphServer.Client;
 
 /// <summary>
 /// First world entry of a new character: placed in the captured dungeon instance, teleported there
-/// after the client settles, then the captured dungeon objects (guide, sword, token, chest,
-/// tutorial tablet) are replayed
+/// after the client settles, then the dungeon geometry (labyr) and the captured dungeon objects
+/// (guide, sword, token, chest, tutorial tablet) are sent
 /// </summary>
 public static class NewPlayerDungeon
 {
@@ -22,9 +23,22 @@ public static class NewPlayerDungeon
     private static readonly WorldCoords TeleportCoords =
         new (-1098.69506835937500, -4501.61474609375000, 1900.05493164062500, 1.57079637050629);
 
+    /// <summary>
+    /// No sst file has geometry above y 2100: the client builds the dungeon from
+    /// params\mazes\x000.mbd ('a' + 23), whose guide, sword, token and spawn markers match the
+    /// captured objects when placed at this room center (GetRoomCoord grid, 200 units)
+    /// </summary>
+    private const ushort MazeId = 23000;
+
+    private const float LabyrinthX = -1100f;
+    private const float LabyrinthY = 4500f;
+    private const float LabyrinthZ = 1900f;
+
     private const int StartingMoney = 10;
     private const double TeleportDelaySeconds = 3;
     private const double LoadDelaySeconds = 0.5;
+
+    private static ushort labyrinthEntityId;
 
     /// <summary>
     /// The client hangs on the loading screen when the session starts inside the dungeon, so the
@@ -48,12 +62,45 @@ public static class NewPlayerDungeon
         character.Angle = TeleportCoords.turn;
     }
 
+    /// <summary>
+    /// One id for every viewer: each client owns its own labyr process
+    /// </summary>
+    private static ushort GetLabyrinthEntityId ()
+    {
+        if (labyrinthEntityId == 0)
+        {
+            labyrinthEntityId = WorldObjectIndex.New ();
+        }
+
+        return labyrinthEntityId;
+    }
+
     public static async void Start (SphereClient client)
     {
         try
         {
             await client.ToSignal (client.GetTree ().CreateTimer (TeleportDelaySeconds), SceneTreeTimer.SignalName.Timeout);
-            if (client.CurrentCharacter is not { } character || !GodotObject.IsInstanceValid (client))
+            if (!GodotObject.IsInstanceValid (client))
+            {
+                return;
+            }
+
+            Enter (client, replayCapturedObjects: true);
+        }
+        catch (Exception ex)
+        {
+            SphLogger.Error ("New player dungeon start failed", ex);
+        }
+    }
+
+    /// <summary>
+    /// GM /npd entry; without the captured replay only the teleport and the geometry go out
+    /// </summary>
+    public static async void Enter (SphereClient client, bool replayCapturedObjects)
+    {
+        try
+        {
+            if (client.CurrentCharacter is not { } character)
             {
                 return;
             }
@@ -69,13 +116,19 @@ public static class NewPlayerDungeon
                 return;
             }
 
-            client.MaybeQueueNetworkPacketSend (CommonPackets.LoadNewPlayerDungeon);
-            client.SendMoney ();
+            client.MaybeQueueNetworkPacketSend (CommonPackets.BuildLabyrinthSpawn (
+                client.GetLocalObjectId (GetLabyrinthEntityId ()), LabyrinthX, LabyrinthY, LabyrinthZ, MazeId));
+            if (replayCapturedObjects)
+            {
+                client.MaybeQueueNetworkPacketSend (CommonPackets.LoadNewPlayerDungeon);
+                client.SendMoney ();
+            }
+
             SphLogger.Info ($"New player dungeon loaded for {character.Name}. Client ID: {character.ClientIndex:X4}");
         }
         catch (Exception ex)
         {
-            SphLogger.Error ("New player dungeon start failed", ex);
+            SphLogger.Error ("New player dungeon enter failed", ex);
         }
     }
 }
