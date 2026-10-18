@@ -641,6 +641,8 @@ public partial class SphereClient : WorldObject
 			return;
 		}
 
+		// Every death passes here, mob kills included, which skip the health handler
+		CultRules.OnMemberDeath (this);
 		playerRespawnTimer = GetTree ().CreateTimer (delaySeconds);
 		playerRespawnTimer.Timeout += ReviveAfterDeath;
 	}
