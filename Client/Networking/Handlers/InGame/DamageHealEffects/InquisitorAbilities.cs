@@ -54,7 +54,11 @@ public static class InquisitorAbilities
         {
             if (target is SphereClient { CurrentCharacter: { CurrentHP: > 0 } victim } targetClient)
             {
-                var point = SavedCoords.RespawnPoints[Continents.Гиперион][Cities.Санпул][KarmaTypes.Очень_Плохая];
+                // On oneself it is a return to the nearest city, on another player a send to the PK respawn
+                var self = targetClient == caster;
+                var point = self
+                    ? SphereClient.FindRespawnPoint (victim).Coords
+                    : SavedCoords.RespawnPoints[Continents.Гиперион][Cities.Санпул][KarmaTypes.Очень_Плохая];
                 targetClient.MaybeQueueNetworkPacketSend (new CharacterDbEntrySerializer (victim).GetTeleportByteArray (point));
                 victim.X = point.x;
                 victim.Y = -point.y;
@@ -62,7 +66,9 @@ public static class InquisitorAbilities
                 victim.Angle = point.turn;
                 targetClient.SaveCharacter ();
                 targetClient.UpdateCoordinatesInWorld ();
-                Tell (caster, "Возрождение: цель перенесена к месту появления персонажей с очень плохой кармой.");
+                Tell (caster, self
+                    ? "Возрождение: вы перенесены в ближайший город."
+                    : "Возрождение: цель перенесена к месту появления персонажей с очень плохой кармой.");
                 success = true;
             }
             else
