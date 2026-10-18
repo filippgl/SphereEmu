@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Godot;
+using SphServer.Client.Networking.GameplayLogic.Stats;
 using SphServer.Helpers;
 using SphServer.Packets;
 using SphServer.Server.Config;
@@ -291,7 +292,9 @@ public static class NewPlayerDungeon
             if (replayCapturedObjects)
             {
                 client.MaybeQueueNetworkPacketSend (CommonPackets.LoadNewPlayerDungeon);
+                // The replay carries the captured newcomer's stats (level 1, zeros) and money
                 client.SendMoney ();
+                NetworkedStatsUpdater.Update (character, client.MaybeQueueNetworkPacketSend, full: true);
             }
 
             SendStarterSword (client);
