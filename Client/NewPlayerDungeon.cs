@@ -192,6 +192,14 @@ public static class NewPlayerDungeon
     {
         try
         {
+            // Client indexes are reused, and the token is not a DB item, so it does not survive a
+            // relog: every new session starts without it and sees it on the stone again
+            if (client.CurrentCharacter is { } entering)
+            {
+                tokenTakenBy.Remove (entering.ClientIndex);
+                tokenShownTo.Remove (entering.ClientIndex);
+            }
+
             // A teleport that lands during the loading screen is dropped, and how long that screen
             // lasts varies (seconds on a warm client, half a minute in a VM; the world-loaded frame
             // does not always come). So the teleport is sent early, re-sent once the client reports
