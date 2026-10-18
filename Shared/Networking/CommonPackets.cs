@@ -572,7 +572,12 @@ public static class CommonPackets
     /// <summary>
     /// Classic Manager frame: clan rank and name for that entity id
     /// </summary>
-    public static byte[] BuildClanRankPacket (ushort entityId, string clanName, int targetRank)
+    /// <summary>
+    /// setClanName sends Manager cmd 22 op 6, which also copies the clan name; ops 0-3 only change
+    /// the rank of a clan the client already knows
+    /// </summary>
+    public static byte[] BuildClanRankPacket (ushort entityId, string clanName, int targetRank,
+        bool setClanName = false)
     {
         var responseStream = SphBitStream.GetWriteBitStream ();
         var nameBytes = SphEncoding.Win1251.GetBytes (clanName);
@@ -588,7 +593,7 @@ public static class CommonPackets
         responseStream.WriteByte (0x0, 7);
         responseStream.WriteBytes ([0x1A, 0x16]);
         responseStream.WriteByte ((byte) (nameBytes.Length + 2));
-        responseStream.WriteByte ((byte) targetRank);
+        responseStream.WriteByte ((byte) (setClanName ? 6 : targetRank));
         responseStream.WriteBytes (nameBytes, nameBytes.Length, true);
         responseStream.WriteByte (0x0, 4);
         responseStream.WriteByte (0x0);
