@@ -84,6 +84,7 @@ public partial class ConsoleCommandParser
         RegisteredCommands["npd"] = EnterNewPlayerDungeon;
         RegisteredCommands["pos"] = ShowPosition;
         RegisteredCommands["cult"] = Cult;
+        RegisteredCommands["navcheck"] = NavCheck;
     }
 
     // A GM chat line when a client is attached, otherwise the server console
