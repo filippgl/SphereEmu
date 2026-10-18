@@ -59,6 +59,7 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
     private SwapItemHandler? swapItemHandler;
     private MoveItemHandler? moveItemHandler;
     private BackpackHandler? backpackHandler;
+    private StackItemsHandler? stackItemsHandler;
     private MoveObjectForClientHandler? moveObjectForClientHandler;
     private NpcInteractionHandler? npcInteractionHandler;
     private OpenLootContainerHandler? openLootContainerHandler;
@@ -210,6 +211,9 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
             case ClientPacketEvent.BackpackContMan:
                 await backpackHandler!.Handle (frame, delta);
                 break;
+            case ClientPacketEvent.ItemStack:
+                await stackItemsHandler!.Handle (frame, delta);
+                break;
             case ClientPacketEvent.NpcInteract:
                 await npcInteractionHandler!.Handle (frame, delta);
                 break;
@@ -254,6 +258,7 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
         dragItemOnGroundHandler ??= new (localId, this);
         moveItemHandler ??= new (localId, this);
         backpackHandler ??= new (localId, this);
+        stackItemsHandler ??= new (localId, this, sphereClient);
         useItemHandler ??= new (localId, this, sphereClient);
         dropItemToGroundHandler ??= new (localId, this, sphereClient);
         mainhandTakeItemHandler ??= new (localId, this);
