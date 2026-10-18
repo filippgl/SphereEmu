@@ -217,7 +217,7 @@ public partial class ConsoleCommandParser
 
     private static float Horizontal (Vector3 a, Vector3 b) => new Vector2 (a.X - b.X, a.Z - b.Z).Length ();
 
-    // Mirrors NavPathQuery's guards (leash +2m, rise above max(1.5m, 3x run), length over 3x+15m) to
+    // Mirrors NavPathQuery's guards (leash +2m, rise above max(1.5m, 3x run)) to
     // name which one fired; the constants are copied, so keep them in step
     private static string ExplainRejection (Vector3[] path, Vector3 start, Vector3 goal, Vector3 leashCenter,
         float leash)
@@ -229,7 +229,6 @@ public partial class ConsoleCommandParser
 
         var reasons = new List<string> ();
         var previous = start;
-        var length = 0f;
         foreach (var point in path)
         {
             var out_ = Horizontal (point, leashCenter) - leash;
@@ -247,15 +246,9 @@ public partial class ConsoleCommandParser
                 break;
             }
 
-            length += previous.DistanceTo (point);
             previous = point;
         }
 
-        var straight = start.DistanceTo (goal);
-        if (length > straight * 3f + 15f)
-        {
-            reasons.Add ($"detour {length:F0}m vs straight {straight:F0}m");
-        }
 
         return reasons.Count > 0 ? string.Join (", ", reasons) : "start/goal snap";
     }
@@ -318,9 +311,17 @@ public partial class ConsoleCommandParser
             return true;
         }
 
-        // Drop-to-ground is outdoor only; dungeon spawners sample at the leash centre height
+        // Drop-to-ground is outdoor only; in a dungeon take the nearest floor under this spot,
+        // whatever height the spawner marker hangs at
         probe.Y = leashCenter.Y;
-        return TerrainNavMeshRuntime.IsPointOnNavMesh (probe, out point);
+        if (!TerrainNavMeshRuntime.TryClosestPoint (probe, out var closest)
+            || Horizontal (closest, probe) > 2f || Mathf.Abs (closest.Y - probe.Y) > 40f)
+        {
+            return false;
+        }
+
+        point = closest;
+        return true;
     }
 
     // Far outside the leash or spanning many storeys: what knelse saw as walls, floors and continents
