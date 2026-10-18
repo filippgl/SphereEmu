@@ -187,7 +187,7 @@ public partial class ConsoleCommandParser
 
     private static float Horizontal (Vector3 a, Vector3 b) => new Vector2 (a.X - b.X, a.Z - b.Z).Length ();
 
-    // Mirrors NavPathQuery's guards (leash +2m, rise above max(1.5m, run), length over 3x+15m) to
+    // Mirrors NavPathQuery's guards (leash +2m, rise above max(1.5m, 3x run), length over 3x+15m) to
     // name which one fired; the constants are copied, so keep them in step
     private static string ExplainRejection (Vector3[] path, Vector3 start, Vector3 goal, Vector3 leashCenter,
         float leash)
@@ -211,7 +211,7 @@ public partial class ConsoleCommandParser
 
             var run = Horizontal (point, previous);
             var rise = Mathf.Abs (point.Y - previous.Y);
-            if (rise > Mathf.Max (1.5f, run))
+            if (rise > Mathf.Max (1.5f, run * 3f))
             {
                 reasons.Add ($"rise {rise:F1}m over {run:F1}m at {point}");
                 break;
