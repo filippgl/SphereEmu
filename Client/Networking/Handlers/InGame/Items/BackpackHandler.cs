@@ -37,6 +37,14 @@ public class BackpackHandler (ushort localId, ClientConnection clientConnection)
     private const int PlayerIdWidth = 32;
 
     /// <summary>
+    /// _inv appends the amount only when the drag splits a stack: cmd 6 grows from 8 to 11 bytes,
+    /// cmd 4 from 6 to 9
+    /// </summary>
+    private const int PutInSplitLength = 11;
+
+    private const int MoveSplitLength = 9;
+
+    /// <summary>
     /// Long enough for the request that took the item away to land first
     /// </summary>
     private const double RestoreCellAfterSeconds = 0.5;
@@ -58,6 +66,8 @@ public class BackpackHandler (ushort localId, ClientConnection clientConnection)
         }
 
         var stream = new BitStream (frame);
+        stream.SeekBitOffset (payloadBit - 8);
+        var length = stream.ReadByte (8);
         stream.SeekBitOffset (payloadBit + PlayerIdWidth);
         switch (command)
         {
@@ -65,6 +75,7 @@ public class BackpackHandler (ushort localId, ClientConnection clientConnection)
             {
                 var itemId = (int) stream.ReadUInt32 (24);
                 var cell = stream.ReadByte (8);
+                var count = length >= PutInSplitLength ? (int) stream.ReadUInt32 (24) : 0;
                 if (DbConnection.Items.FindById (itemId) is not { } item)
                 {
                     SphLogger.Warning ($"Backpack {bagId:X4}: no item {itemId:X4} to put in. Client ID: {localId:X4}");
@@ -72,14 +83,15 @@ public class BackpackHandler (ushort localId, ClientConnection clientConnection)
                     break;
                 }
 
-                Backpack.PutIn (clientConnection, bag, item, cell);
+                Backpack.PutIn (clientConnection, bag, item, cell, count);
                 break;
             }
             case MoveCommand:
             {
                 var to = stream.ReadByte (8);
                 var from = stream.ReadByte (8);
-                Backpack.MoveCell (clientConnection, bag, from, to);
+                var count = length >= MoveSplitLength ? (int) stream.ReadUInt32 (24) : 0;
+                Backpack.MoveCell (clientConnection, bag, from, to, count);
                 break;
             }
             case LeftCellCommand:

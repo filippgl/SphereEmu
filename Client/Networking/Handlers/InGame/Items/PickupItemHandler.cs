@@ -34,6 +34,14 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
     private const int PickupItemIdBit = 141;
 
     /// <summary>
+    /// Player ContMan cmd 6: a split drag sends 11 bytes instead of 8, the amount after the slot
+    /// </summary>
+    private const int SlotPickupLengthBit = 129;
+
+    private const int SlotPickupSplitLength = 11;
+    private const int SlotPickupCountBit = 201;
+
+    /// <summary>
     /// Double-click in an open sack: the item goes to the first free cell
     /// </summary>
     public async Task HandlePickupToNextAvailableEmptySlot (byte[] frame, double delta)
@@ -98,6 +106,13 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
         TakeOutOfLootBag (item);
     }
 
+    private static int ReadSplitCount (byte[] frame)
+    {
+        var stream = new BitStream (frame);
+        stream.SeekBitOffset (SlotPickupCountBit);
+        return (int) stream.ReadUInt32 (24);
+    }
+
     private static bool PayloadContainsId (byte[] frame, ushort id)
     {
         for (var bit = PickupPayloadBit; bit + 16 <= frame.Length * 8; bit++)
@@ -160,7 +175,12 @@ public class PickupItemHandler (ushort localId, ClientConnection clientConnectio
 
         if (item.ParentBackpackId is not null)
         {
-            Backpack.TakeOut (clientConnection, item, targetSlot);
+            var stream = new BitStream (frame);
+            stream.SeekBitOffset (SlotPickupLengthBit);
+            var count = stream.ReadByte (8) >= SlotPickupSplitLength && frame.Length * 8 >= SlotPickupCountBit + 24
+                ? ReadSplitCount (frame)
+                : 0;
+            Backpack.TakeOut (clientConnection, item, targetSlot, count);
             return;
         }
 
