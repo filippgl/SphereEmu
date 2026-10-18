@@ -257,9 +257,12 @@ public partial class SphereClient : WorldObject
 			DbConnection.Characters.Delete (id);
 
 			DbConnection.Checkpoint ();
-			// SetDelCharRes(0) makes the stock client restart its connection and reload the list
+			// SetDelCharRes(0) ends _pcontrol's selection screen, which then starts over from the list
+			// data (_player.PlFromBuf), so the fresh list follows on the same connection; dropping it
+			// here lost the reply and the deleted name stayed until a relog
 			MaybeQueueNetworkPacketSend (CommonPackets.DeleteCharacterResult (localId, deleted: true));
-			RemoveClient ();
+			MaybeQueueNetworkPacketSend (CommonPackets.CharacterSelectStartData (localId));
+			MaybeQueueNetworkPacketSend (new PlayerDbEntrySerializer (playerDbEntry).ToInitialDataByteArray ());
 		}
 		catch (Exception ex)
 		{
