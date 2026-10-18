@@ -319,6 +319,7 @@ public partial class SphereClient : WorldObject
 		Transform = transform;
 		UpdateUnderwater ();
 		WorldObjectVisibilityManager.RefreshRegistration (this);
+		NewPlayerDungeon.CheckExit (this);
 	}
 
 	/// <summary>
