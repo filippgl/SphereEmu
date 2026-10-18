@@ -192,6 +192,20 @@ public static class NewPlayerDungeon
     }
 
     /// <summary>
+    /// Inside the x000 maze footprint (about 60 units square around the labyr center)
+    /// </summary>
+    public static bool IsInside (CharacterDbEntry? character)
+    {
+        if (character is null)
+        {
+            return false;
+        }
+
+        return Math.Abs (character.X - LabyrinthX) < 100 && Math.Abs (-character.Y - LabyrinthY) < 50
+                                                         && Math.Abs (-character.Z - LabyrinthZ) < 100;
+    }
+
+    /// <summary>
     /// Called on every position update; the portal is client-side scenery, so the exit is a
     /// proximity check
     /// </summary>

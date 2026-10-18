@@ -384,6 +384,13 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
             return;
         }
 
+        // Debug convenience only; a newcomer in the tutorial dungeon starts without it, as on live
+        if (!ServerConfig.AppConfig.DebugMode || NewPlayerDungeon.IsInside (sphereClient.CurrentCharacter))
+        {
+            starterMutatorSent = true;
+            return;
+        }
+
         MutatorHandler.SendSpecialMutator (this, localId, SpecialMutator.Прыг_х4, BelongingSlot.Mutator_1);
         MutatorHandler.SendSpecialMutator (this, localId, SpecialMutator.СХ, BelongingSlot.Mutator_2);
         starterMutatorSent = true;
