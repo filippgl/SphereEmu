@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using SphereHelpers.Extensions;
 using SphServer.Shared.BitStream;
 using SphServer.Shared.Db.DataModels;
@@ -58,6 +58,21 @@ public static class ItemRecordEncoder
     }
 
     /// <summary>
+    /// Live sack records (itemDrops, itemDropOneSlot) carry 4-bit message types and parse to the end
+    /// only that way; the 8-bit form is kept for the player container until it is checked in game
+    /// </summary>
+    public static byte[] EncodeInLootBag (ItemDbEntry item, ushort bagId)
+    {
+        if (IsGuildFamily ((ObjectType) item.WireObjectType))
+        {
+            return Encode (item, bagId);
+        }
+
+        return EncodeClassic ((ushort) item.Id, (int) item.WireObjectType, item.GameId, SuffixWireFor (item),
+            bagId, ContainedX, 0f, 0f, messageTypeBits: 4, count: item.ItemCount);
+    }
+
+    /// <summary>
     /// No game object id: object type alone, so every item of a type shares one icon
     /// </summary>
     public static byte[] EncodeWithoutGameId (ushort entityId, int objectType, ushort containerObjectId,
@@ -91,8 +106,13 @@ public static class ItemRecordEncoder
         return EncodeClassic (entityId, objectType, gameObjectId, suffix, containerObjectId, x, y, z);
     }
 
+    /// <summary>
+    /// Live sack records end with a count message (type 12, two bytes)
+    /// </summary>
+    private const uint CountMessage = 12;
+
     private static byte[] EncodeClassic (ushort entityId, int objectType, int gameObjectId, int suffix,
-        ushort containerObjectId, float x, float y, float z)
+        ushort containerObjectId, float x, float y, float z, int messageTypeBits = 8, int? count = null)
     {
         var stream = GetWriteBitStream ();
         WriteItemHeader (stream, entityId, objectType);
@@ -109,19 +129,31 @@ public static class ItemRecordEncoder
 
         // "You are inside this container": the only field that gives an item a parent
         stream.WriteByte ((byte) FollowOnRecord, 7);
-        stream.WriteByte ((byte) PutHereMessage, 8);
+        stream.WriteByte ((byte) PutHereMessage, messageTypeBits);
         stream.WriteByte (3, 8);
         stream.WriteUInt32 (containerObjectId, 24);
 
         // Property 0 stays -1: any other value that is not the player's id is a second refusal,
         // apart from the parent check
         stream.WriteByte ((byte) FollowOnRecord, 7);
-        stream.WriteByte ((byte) PropertiesMessage, 8);
+        stream.WriteByte ((byte) PropertiesMessage, messageTypeBits);
         stream.WriteByte (5, 8);
         stream.WriteByte (0, 8);
         WriteUInt32Full (stream, uint.MaxValue);
 
-        stream.WriteByte (0, 7);
+        if (count is { } itemCount)
+        {
+            stream.WriteByte ((byte) FollowOnRecord, 7);
+            stream.WriteByte ((byte) CountMessage, messageTypeBits);
+            stream.WriteByte (2, 8);
+            stream.WriteUInt16 ((ushort) Math.Max (1, itemCount), 16);
+        }
+
+        // Live sack records stop after the last message, with no zero marker
+        if (messageTypeBits == 8)
+        {
+            stream.WriteByte (0, 7);
+        }
         return Packet.ToByteArray (stream.GetStreamData (), 3);
     }
 

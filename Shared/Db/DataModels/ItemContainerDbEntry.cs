@@ -227,12 +227,12 @@ public class ItemContainerDbEntry
             packets.Add (itemList);
         }
 
-        packets.AddRange (items.Select (x => ItemRecordEncoder.Encode (x, (ushort) Id)));
+        packets.AddRange (items.Select (x => ItemRecordEncoder.EncodeInLootBag (x, (ushort) Id)));
         return packets;
     }
 
     public List<byte[]> GetItemRecordPackets () =>
-        GetItems ().Select (x => ItemRecordEncoder.Encode (x, (ushort) Id)).ToList ();
+        GetItems ().Select (x => ItemRecordEncoder.EncodeInLootBag (x, (ushort) Id)).ToList ();
 
     private List<ItemDbEntry> GetItems () =>
         Contents.OrderBy (x => x.Key)
