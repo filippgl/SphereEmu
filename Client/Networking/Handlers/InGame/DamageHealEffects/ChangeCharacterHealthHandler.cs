@@ -4,6 +4,7 @@ using SphereHelpers.Extensions;
 using SphServer.Client.Networking.GameplayLogic.Stats;
 using SphServer.Helpers;
 using SphServer.Packets;
+using SphServer.Server.GameplayLogic.Cult;
 using SphServer.Shared.BitStream;
 using SphServer.Shared.GameData.Enums;
 using SphServer.Shared.ClientEvents;
@@ -94,6 +95,7 @@ public sealed class ChangeCharacterHealthHandler (SphereClient sphereClient) : I
         if (becameDead)
         {
             sphereClient.DisarmUnderwaterBreath ();
+            CultRules.OnMemberDeath (sphereClient);
             sphereClient.SchedulePlayerRespawn ();
         }
 
