@@ -263,7 +263,7 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
         dragItemOnGroundHandler ??= new (localId, this);
         moveItemHandler ??= new (localId, this);
         backpackHandler ??= new (localId, this);
-        stackItemsHandler ??= new (localId, this, sphereClient);
+        stackItemsHandler ??= new (localId, sphereClient);
         useItemHandler ??= new (localId, this, sphereClient);
         dropItemToGroundHandler ??= new (localId, this, sphereClient);
         mainhandTakeItemHandler ??= new (localId, this);

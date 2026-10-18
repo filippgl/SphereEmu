@@ -10,6 +10,7 @@ using SphServer.Shared.Db.DataModels;
 using SphServer.Shared.Logger;
 using SphServer.Shared.Networking;
 using SphServer.Shared.WorldState;
+using static SphServer.Shared.BitStream.SphBitStream;
 using static SphServer.Shared.Networking.DataModel.Serializers.SphereDbEntrySerializerBase;
 
 namespace SphServer.Client.Networking.Handlers.InGame.Items;
@@ -19,7 +20,7 @@ namespace SphServer.Client.Networking.Handlers.InGame.Items;
 /// dragged item's use on the target (cuse with player, target and amount) and leaves both cells to
 /// the server's count messages
 /// </summary>
-public class StackItemsHandler (ushort localId, ClientConnection clientConnection, SphereClient client)
+public class StackItemsHandler (ushort localId, SphereClient client)
     : ISphereClientNetworkingHandler
 {
     /// <summary>
@@ -32,11 +33,21 @@ public class StackItemsHandler (ushort localId, ClientConnection clientConnectio
     public Task Handle (byte[] frame, double delta)
     {
         // Item use arms g_6008, so this ack clears it or the client stays wedged
-        clientConnection.MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
+        client.MaybeQueueNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
 
-        var sourceId = frame[11] + frame[12] * 0x100;
+        var payloadBit = GameplayRecord.ObjectPayloadBit (frame);
+        if (payloadBit + GameplayRecord.ObjectUseOnTargetLength * 8 > frame.Length * 8)
+        {
+            return Task.CompletedTask;
+        }
+
+        var sourceId = (int) GameplayRecord.ReadIdentity (frame).EntityId;
         var stream = new BitStreams.BitStream (frame);
-        stream.ReadBits (GameplayRecord.ObjectPayloadBit (frame) + PlayerIdWidth);
+        stream.ReadBits (payloadBit);
+        if (stream.ReadUInt32 (PlayerIdWidth) != ByteSwap (localId))
+        {
+            return Task.CompletedTask;
+        }
         var targetId = (int) stream.ReadUInt32 (24);
         var amount = (int) stream.ReadUInt32 (24);
 
@@ -159,6 +170,14 @@ public class StackItemsHandler (ushort localId, ClientConnection clientConnectio
         {
             bag.BackpackContents.Remove (place.BagCell);
             DbConnection.Items.Update (bag);
+            if (character.Items.TryGetValue (BelongingSlot.MainHand, out var heldItem) && heldItem == item.Id)
+            {
+                character.Items.Remove (BelongingSlot.MainHand);
+                if (character.RecalcCurrentStats ())
+                {
+                    NetworkedStatsUpdater.Update (character);
+                }
+            }
             client.MaybeQueueNetworkPacketSend (Backpack.BuildCellsPacket (bag));
             client.MaybeQueueNetworkPacketSend (CommonPackets.DespawnEntity (client.GetLocalObjectId ((ushort) item.Id)));
             DbConnection.Items.Delete (item.Id);
