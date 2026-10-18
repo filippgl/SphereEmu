@@ -134,6 +134,10 @@ public static class NewPlayerDungeon
 
     private const double ExitCooldownSeconds = 10;
 
+    private const double TokenHolderPortalGraceSeconds = 10;
+
+    private static readonly Dictionary<ushort, DateTime> onPortalSince = [];
+
     /// <summary>
     /// When the client's own position update last put it inside the maze; once it has, the
     /// teleport has landed and the retries stop, so a later /tp or exit is left alone
@@ -530,14 +534,32 @@ public static class NewPlayerDungeon
         }
 
         var world = new Vector3 ((float) character.X, (float) -character.Y, (float) -character.Z);
-        // Token holders still leave by standing on the portal: the client does not yet see our
-        // telep1 under the player's feet, so using the token there only prints "stand on a teleport"
-        if (world.DistanceTo (ExitPortalWorld) > ExitPortalRadius
+        var onPortal = world.DistanceTo (ExitPortalWorld) <= ExitPortalRadius;
+        if (!onPortal)
+        {
+            onPortalSince.Remove (character.ClientIndex);
+        }
+
+        if (!onPortal
             || lastExitAt.TryGetValue (character.ClientIndex, out var exitedAt)
             && (DateTime.UtcNow - exitedAt).TotalSeconds < ExitCooldownSeconds)
         {
             return;
         }
+
+        // A token holder leaves the original way, by using the token while standing here; if that
+        // does not happen within a few seconds the portal still lets them out, so nobody is stuck
+        if (tokenTakenBy.Contains (character.ClientIndex))
+        {
+            var since = onPortalSince.TryGetValue (character.ClientIndex, out var t) ? t : DateTime.UtcNow;
+            onPortalSince[character.ClientIndex] = since;
+            if ((DateTime.UtcNow - since).TotalSeconds < TokenHolderPortalGraceSeconds)
+            {
+                return;
+            }
+        }
+
+        onPortalSince.Remove (character.ClientIndex);
 
         lastExitAt[character.ClientIndex] = DateTime.UtcNow;
         // Removing a tutomsg closes its window, which otherwise stays open after the exit
