@@ -399,6 +399,15 @@ public partial class ConsoleCommandParser
             return;
         }
 
+        var parts = args.Split (' ', StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length >= 3)
+        {
+            // Same coordinate form as /pos prints
+            var c = parts.Take (3).Select (x => double.Parse (x.Replace (',', '.'), CultureInfo.InvariantCulture)).ToArray ();
+            NewPlayerDungeon.EnterAt (client, c[0], c[1], c[2]);
+            return;
+        }
+
         var full = args.Trim ().Equals ("full", StringComparison.OrdinalIgnoreCase);
         NewPlayerDungeon.Enter (client, replayCapturedObjects: full);
     }

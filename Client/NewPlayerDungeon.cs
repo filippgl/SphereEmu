@@ -130,13 +130,13 @@ public static class NewPlayerDungeon
         character.Angle = ServerConfig.AppConfig.Spawn_Angle;
     }
 
-    private static void MoveToDungeon (CharacterDbEntry character)
+    private static void MoveToDungeon (CharacterDbEntry character, WorldCoords target)
     {
-        // DB keeps Y and Z negated relative to world coords; TeleportCoords.y is already flipped
-        character.X = TeleportCoords.x;
-        character.Y = TeleportCoords.y;
-        character.Z = -TeleportCoords.z;
-        character.Angle = TeleportCoords.turn;
+        // DB keeps Y and Z negated relative to world coords; the target's y is already flipped
+        character.X = target.x;
+        character.Y = target.y;
+        character.Z = -target.z;
+        character.Angle = target.turn;
     }
 
     /// <summary>
@@ -213,7 +213,17 @@ public static class NewPlayerDungeon
     /// GM /npd entry; without the captured replay only the teleport, the geometry, the mob and the
     /// pedestal sword go out
     /// </summary>
-    public static async void Enter (SphereClient client, bool replayCapturedObjects)
+    public static void Enter (SphereClient client, bool replayCapturedObjects) =>
+        EnterAt (client, TeleportCoords, replayCapturedObjects);
+
+    /// <summary>
+    /// GM /npd x y z: a plain /tp inside the maze drops the client-built labyrinth, so the jump goes
+    /// through the dungeon entry, which sends the geometry again
+    /// </summary>
+    public static void EnterAt (SphereClient client, double worldX, double worldY, double worldZ) =>
+        EnterAt (client, new WorldCoords (worldX, -worldY, worldZ, TeleportCoords.turn), false);
+
+    private static async void EnterAt (SphereClient client, WorldCoords target, bool replayCapturedObjects)
     {
         try
         {
@@ -223,8 +233,8 @@ public static class NewPlayerDungeon
             }
 
             client.MaybeQueueNetworkPacketSend (
-                new CharacterDbEntrySerializer (character).GetNewPlayerDungeonTeleportAndUpdateStatsByteArray (TeleportCoords));
-            MoveToDungeon (character);
+                new CharacterDbEntrySerializer (character).GetNewPlayerDungeonTeleportAndUpdateStatsByteArray (target));
+            MoveToDungeon (character, target);
             client.SaveCharacter ();
 
             await client.ToSignal (client.GetTree ().CreateTimer (LoadDelaySeconds), SceneTreeTimer.SignalName.Timeout);
