@@ -108,6 +108,14 @@ public class UseItemHandler (ushort localId, ClientConnection clientConnection, 
             return;
         }
 
+        // A worn book (maps, recipes, mantras) is a container: the client opens its window itself
+        // and then reports the use, so the book stays in its slot
+        if (from is BelongingSlot.MapBook or BelongingSlot.RecipeBook or BelongingSlot.MantraBook)
+        {
+            Log (itemId, name, "book opened");
+            return;
+        }
+
         var wearing = !ItemDbEntry.IsInventorySlot (from);
         var to = wearing ? character.FindEmptyInventorySlot () : WearSlotFor (character, item);
         if (to is null)
