@@ -38,6 +38,7 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
 
     private BankHandler? bankHandler;
     private BuyItemFromTargetHandler? buyItemFromTargetHandler;
+    private SellItemToVendorHandler? sellItemToVendorHandler;
     private ChangeStatsHandler? changeStatsHandler;
     private ClanActionsHandler? clanActionsHandler;
     private ClientChatHandler? clientChatHandler;
@@ -228,10 +229,15 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
             case ClientPacketEvent.TradeBuy:
                 await buyItemFromTargetHandler!.Handle (frame, delta);
                 break;
+            case ClientPacketEvent.TradeSell:
+                await sellItemToVendorHandler!.Handle (frame, delta);
+                break;
             case ClientPacketEvent.CombatDamageTarget:
                 await damageTargetHandler!.Handle (frame, delta);
                 break;
             case ClientPacketEvent.NpcInteractClose:
+                // Selling needs an open vendor window
+                sphereClient.TradeVendorId = 0;
                 // The damage fallback used to send this ack; without it g_6008 stays set
                 MaybeScheduleNetworkPacketSend (CommonPackets.ClearUseToutAck (localId));
                 break;
@@ -269,6 +275,7 @@ public class ClientConnection (StreamPeerTcp streamPeerTcp, ushort localId, Sphe
         mainhandTakeItemHandler ??= new (localId, this);
         swapItemHandler ??= new (localId, this);
         buyItemFromTargetHandler ??= new (localId, this, sphereClient);
+        sellItemToVendorHandler ??= new (localId, sphereClient);
         damageTargetHandler ??= new (localId, this);
         moveObjectForClientHandler ??= new (this);
         changeStatsHandler ??= new (localId, this);

@@ -30,7 +30,8 @@ public enum ClientPacketEvent
     ItemLeftCell,
     BackpackContMan,
     ItemStack,
-    BankRequest
+    BankRequest,
+    TradeSell
 }
 
 public readonly record struct ClientPacketClassification (
@@ -97,6 +98,11 @@ public static class ClientPacketClassifier
         if (identity.SubjectType == GameplayRecord.SubjectTypeBank && identity.Tag == 13)
         {
             return Result (ClientPacketEvent.BankRequest, 1.0, "record: bank window", true);
+        }
+
+        if (IsTradeSell (identity, frame))
+        {
+            return Result (ClientPacketEvent.TradeSell, 1.0, "record: sell window", true);
         }
 
         if (identity.Tag == GameplayRecord.TagObjectInteract)
@@ -209,6 +215,28 @@ public static class ClientPacketClassifier
         frame.Length >= 20 && frame[18] is 0xA1 or 0xA2 or 0xA3 && frame[19] == 0x41;
 
     /// Take or put-down frames that share the attack action with a real swing
+    /// <summary>
+    /// The player's sell window: region 12 cmd 6 (sell slot) and cmd 21 (trade partner), region 9
+    /// cmd 2 (offer reset), all from the player's own record
+    /// </summary>
+    private static bool IsTradeSell (in GameplayRecord.Identity identity, ReadOnlySpan<byte> frame)
+    {
+        const int commandBit = ClientFrame.BodyOffset * 8 + 53;
+        if (identity.PositionFlag || identity.SubjectType != GameplayRecord.SubjectTypePlayer ||
+            frame.Length * 8 < commandBit + 16)
+        {
+            return false;
+        }
+
+        var command = frame[commandBit / 8] >> (commandBit % 8) | frame[commandBit / 8 + 1] << (8 - commandBit % 8);
+        return identity.Tag switch
+        {
+            GameplayRecord.TagPlayerAction => (byte) command is 6 or 21,
+            GameplayRecord.TagTradeMan => (command & 0x0F) == 2,
+            _ => false
+        };
+    }
+
     private static bool LooksLikeTakeMainhand (ReadOnlySpan<byte> frame)
     {
         if (frame.Length < 16)
@@ -425,6 +453,7 @@ public static class ClientPacketClassifier
             ClientPacketEvent.BackpackContMan => "client.item.backpack",
             ClientPacketEvent.ItemStack => "client.item.stack",
             ClientPacketEvent.BankRequest => "client.bank.request",
+            ClientPacketEvent.TradeSell => "client.trade.sell",
             _ => "client.none"
         };
 
