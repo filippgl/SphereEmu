@@ -98,7 +98,7 @@ foreach (var type in new[] { ObjectType.Mantra_White, ObjectType.Mantra_Black })
     var mantra = new ItemDbEntry { Id = 20003, GameId = 1, ObjectType = type, ItemCount = 3 };
     foreach (var packet in new[] {
                  ItemRecordEncoder.Encode (mantra, 0x774F),
-                 ItemRecordEncoder.EncodeInLootBag (mantra, 1234),
+                 ItemRecordEncoder.EncodeInLootBag (mantra),
                  ItemRecordEncoder.EncodeOnGround (mantra, 5, -7, 9, 3) })
     {
         var events = Decode (packet);

@@ -88,20 +88,23 @@ public static class ItemRecordEncoder
     }
 
     /// <summary>
-    /// Live sack records (itemDrops, itemDropOneSlot) carry 4-bit message types and parse to the end
-    /// only that way; the 8-bit form is kept for the player container until it is checked in game
+    /// Live sack records (itemDrops) carry the amount as the item record's last message, not as a
+    /// separate record. The sack is not named as the parent: ct_mbag accepts nothing put into it
+    /// (TestIt is -1) and tries to stack a newcomer onto what it holds, so an item arriving with the
+    /// sack as parent was lost and only the first cell, if any, was drawn. The sack's cells come
+    /// from its list frame alone, which only needs the item processes to exist
     /// </summary>
-    public static byte[] EncodeInLootBag (ItemDbEntry item, ushort bagId)
+    public static byte[] EncodeInLootBag (ItemDbEntry item)
     {
         if (IsGuildFamily ((ObjectType) item.WireObjectType))
         {
-            return Encode (item, bagId);
+            return Encode (item, GroundContainerSentinel);
         }
 
         // The 4-bit form copied from the 2022 captures leaves the sack's cells drawn empty in the
         // current client; the 8-bit form the inventory uses is parsed, so the sack takes it too
         return EncodeClassic ((ushort) item.Id, (int) item.WireObjectType, item.GameId, SuffixWireFor (item),
-            bagId, ContainedX, 0f, 0f, messageTypeBits: 8, count: item.ItemCount);
+            GroundContainerSentinel, ContainedX, 0f, 0f, messageTypeBits: 8, count: item.ItemCount);
     }
 
     /// <summary>
